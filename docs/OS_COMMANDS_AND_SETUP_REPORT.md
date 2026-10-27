@@ -339,6 +339,44 @@ Every single command executed on the system is cataloged below, explaining the O
 
 ---
 
+### Step 14: Phase 4 (Scheduler Core, Policies & Admission Control) Build & Verification
+
+- **Commands Executed:**
+  ```bash
+  cmake --build build
+  ctest --test-dir build --output-on-failure
+  ./build/test_phase4
+  ```
+- **OS Context / Purpose:**
+  Implements OS scheduling policies and resource admission:
+  1. `SchedulingPolicy` Polymorphic Engine:
+     - **FCFS:** Earliest enqueue timestamp ordering.
+     - **Priority:** Highest priority ordering with enqueue timestamp tie-breaking.
+     - **Priority Aging (Starvation Prevention):** Dynamically computes effective priority:
+       $$\text{Effective Priority} = \text{Base Priority} + \min\left(\text{Max Priority}, \frac{\text{Wait Duration}}{\text{Aging Interval}}\right)$$
+       Guarantees low-priority jobs eventually preempt newly arrived high-priority jobs.
+     - **SJF:** Shortest Job First runtime estimation.
+  2. `ResourceManager` Admission & Accounting:
+     - Enforces CPU core slot limits (`reserved_cpu_slots + req <= total_cpu_slots`).
+     - Distinguishes reservations from physical telemetry measurements (`/proc/meminfo`, `/proc/cpuinfo`, NVIDIA driver).
+     - **Exact-Once Release Semantics:** Ensures resource reservations cannot be double-released or leaked.
+  3. `Scheduler` Event Loop:
+     - Connects `JobStore`, `WorkerManager`, `ResourceManager`, and `SchedulingPolicy`.
+     - Owns job state transitions (`Queued` -> `Admitted` -> `Running` -> `Succeeded`/`Failed`).
+     - Reconciles prerequisite dependencies and manages bounded retries.
+- **Actual Output:**
+  ```
+  Running ASTRA Phase 4 (Scheduler Core) Unit & Integration Tests...
+  [PASS] FCFS policy ordering
+  [PASS] Priority policy ordering
+  [PASS] Priority Aging starvation prevention
+  [PASS] ResourceManager admission and exact-once release semantics
+  [PASS] Scheduler end-to-end execution, policy dispatch, and resource reclamation
+  All Phase 4 tests passed successfully!
+  ```
+
+---
+
 ## 3. Summary of Files Created & Modified
 
 | File Path | Description / OS Role |
@@ -363,6 +401,9 @@ Every single command executed on the system is cataloged below, explaining the O
 | `include/astra/ipc_channel.hpp` | Framed 32-byte header binary IPC socketpair wrapper and `UniqueFd` RAII |
 | `include/astra/worker.hpp` | Worker child process entry point and workload supervisor |
 | `include/astra/worker_manager.hpp` | WorkerManager pool, process lifecycle, signal cancellation, and reaping |
+| `include/astra/scheduling_policy.hpp` | FCFS, Priority, Priority Aging, and SJF scheduling policy interfaces |
+| `include/astra/resource_manager.hpp` | Logical resource reservations, admission limits, and hardware telemetry |
+| `include/astra/scheduler.hpp` | Scheduler Core single-threaded event loop and dependency coordinator |
 | `src/main.cpp` | CLI entry point dispatching one-shot commands or launching REPL |
 | `src/resources/config.cpp` | Configuration loader and validator implementation |
 | `src/storage/job_store.cpp` | SQLite schema migrations, ACID CRUD, and audit logging |
@@ -371,6 +412,9 @@ Every single command executed on the system is cataloged below, explaining the O
 | `src/ipc/ipc_channel.cpp` | Bidirectional `AF_UNIX` framed read/write implementation with timeout polling |
 | `src/worker/worker.cpp` | Worker process loop, workload fork/execvp, output redirection, and cancellation |
 | `src/worker/worker_manager.cpp` | Child worker pool supervisor, non-blocking polling, reaping, and auto-restart |
+| `src/scheduler/scheduling_policy.cpp` | Implementation of FCFS, Priority, Priority Aging, and SJF algorithms |
+| `src/resources/resource_manager.cpp` | Resource tracking, `/proc/meminfo` telemetry parser, and exact-once release |
+| `src/scheduler/scheduler.cpp` | Scheduler event loop, decision events, and worker dispatching |
 | `workloads/cpu_burn.cpp` | CPU workload test program (compute loops) |
 | `workloads/deliberate_failure.cpp` | Controlled non-zero exit code and crash test program |
 | `workloads/parallel_sum.cpp` | Multithreaded parallel reduction workload test program |
@@ -378,4 +422,5 @@ Every single command executed on the system is cataloged below, explaining the O
 | `tests/unit/test_phase1.cpp` | Phase 1 unit test suite covering transitions, models, and persistence |
 | `tests/unit/test_phase2.cpp` | Phase 2 unit test suite covering command parsing, path security, and REPL |
 | `tests/integration/test_worker_lifecycle.cpp` | Phase 3 integration suite testing real child processes, cancellation, reaping, and crashes |
+| `tests/unit/test_phase4.cpp` | Phase 4 test suite verifying policy ordering, starvation prevention, admission, and scheduler step |
 | `README.md` & `LICENSE` | Project documentation and MIT license |

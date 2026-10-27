@@ -71,12 +71,15 @@ set(ASTRA_COMMON_LIBS
 # ASTRA Core Library
 add_library(astra_core STATIC
     src/resources/config.cpp
+    src/resources/resource_manager.cpp
     src/storage/job_store.cpp
     src/cli/command_parser.cpp
     src/cli/cli_handler.cpp
     src/ipc/ipc_channel.cpp
     src/worker/worker.cpp
     src/worker/worker_manager.cpp
+    src/scheduler/scheduling_policy.cpp
+    src/scheduler/scheduler.cpp
 )
 target_include_directories(astra_core PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/include)
 target_link_libraries(astra_core PUBLIC ${ASTRA_COMMON_LIBS})
@@ -129,3 +132,11 @@ target_link_libraries(test_phase3 PRIVATE astra_core ${ASTRA_COMMON_LIBS})
 add_dependencies(test_phase3 cpu_burn deliberate_failure parallel_sum)
 add_test(NAME Phase3WorkersAndIPC COMMAND test_phase3)
 set_tests_properties(Phase3WorkersAndIPC PROPERTIES WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}")
+
+add_executable(test_phase4
+    tests/unit/test_phase4.cpp
+)
+target_link_libraries(test_phase4 PRIVATE astra_core ${ASTRA_COMMON_LIBS})
+add_dependencies(test_phase4 cpu_burn deliberate_failure parallel_sum)
+add_test(NAME Phase4SchedulerCore COMMAND test_phase4)
+set_tests_properties(Phase4SchedulerCore PROPERTIES WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}")
