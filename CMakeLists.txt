@@ -68,12 +68,19 @@ set(ASTRA_COMMON_LIBS
     ${SQLITE3_LIBRARIES}
 )
 
+# ASTRA Core Library
+add_library(astra_core STATIC
+    src/resources/config.cpp
+    src/storage/job_store.cpp
+)
+target_include_directories(astra_core PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/include)
+target_link_libraries(astra_core PUBLIC ${ASTRA_COMMON_LIBS})
+
 # Main ASTRA scheduler executable
 add_executable(astra
     src/main.cpp
 )
-
-target_link_libraries(astra PRIVATE ${ASTRA_COMMON_LIBS})
+target_link_libraries(astra PRIVATE astra_core ${ASTRA_COMMON_LIBS})
 
 # Enable Testing & Unit Tests
 enable_testing()
@@ -81,5 +88,13 @@ enable_testing()
 add_executable(test_phase0
     tests/unit/test_phase0.cpp
 )
-target_link_libraries(test_phase0 PRIVATE ${ASTRA_COMMON_LIBS})
+target_link_libraries(test_phase0 PRIVATE astra_core ${ASTRA_COMMON_LIBS})
 add_test(NAME Phase0Sanity COMMAND test_phase0)
+set_tests_properties(Phase0Sanity PROPERTIES WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}")
+
+add_executable(test_phase1
+    tests/unit/test_phase1.cpp
+)
+target_link_libraries(test_phase1 PRIVATE astra_core ${ASTRA_COMMON_LIBS})
+add_test(NAME Phase1DomainAndStorage COMMAND test_phase1)
+set_tests_properties(Phase1DomainAndStorage PROPERTIES WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}")
