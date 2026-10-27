@@ -74,9 +74,23 @@ add_library(astra_core STATIC
     src/storage/job_store.cpp
     src/cli/command_parser.cpp
     src/cli/cli_handler.cpp
+    src/ipc/ipc_channel.cpp
+    src/worker/worker.cpp
+    src/worker/worker_manager.cpp
 )
 target_include_directories(astra_core PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/include)
 target_link_libraries(astra_core PUBLIC ${ASTRA_COMMON_LIBS})
+
+# Workload Binaries
+add_executable(cpu_burn workloads/cpu_burn.cpp)
+set_target_properties(cpu_burn PROPERTIES RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/workloads")
+
+add_executable(deliberate_failure workloads/deliberate_failure.cpp)
+set_target_properties(deliberate_failure PROPERTIES RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/workloads")
+
+add_executable(parallel_sum workloads/parallel_sum.cpp)
+target_link_libraries(parallel_sum PRIVATE Threads::Threads)
+set_target_properties(parallel_sum PROPERTIES RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/workloads")
 
 # Main ASTRA scheduler executable
 add_executable(astra
@@ -107,3 +121,11 @@ add_executable(test_phase2
 target_link_libraries(test_phase2 PRIVATE astra_core ${ASTRA_COMMON_LIBS})
 add_test(NAME Phase2CLI COMMAND test_phase2)
 set_tests_properties(Phase2CLI PROPERTIES WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}")
+
+add_executable(test_phase3
+    tests/integration/test_worker_lifecycle.cpp
+)
+target_link_libraries(test_phase3 PRIVATE astra_core ${ASTRA_COMMON_LIBS})
+add_dependencies(test_phase3 cpu_burn deliberate_failure parallel_sum)
+add_test(NAME Phase3WorkersAndIPC COMMAND test_phase3)
+set_tests_properties(Phase3WorkersAndIPC PROPERTIES WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}")

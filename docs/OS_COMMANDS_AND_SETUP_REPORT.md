@@ -309,6 +309,36 @@ Every single command executed on the system is cataloged below, explaining the O
 
 ---
 
+### Step 13: Phase 3 (Workers, Socketpair IPC & Process Lifecycle) Build & Integration
+
+- **Commands Executed:**
+  ```bash
+  cmake --build build
+  ctest --test-dir build --output-on-failure
+  ./build/test_phase3
+  ```
+- **OS Context / Purpose:**
+  Implements real POSIX process management and bidirectional IPC:
+  1. `socketpair(AF_UNIX, SOCK_STREAM, 0, fds)`: Instantiates dedicated full-duplex UNIX stream sockets per worker process for lockless, un-interleaved command and telemetry streaming.
+  2. `fork()` + `run_worker_process()`: Launches genuine child worker supervisor processes.
+  3. `pipe()` + `dup2(out_pipe[1], STDOUT/STDERR)`: Intercepts and captures workload stdout and stderr streams via non-blocking pipes (`fcntl(O_NONBLOCK)`).
+  4. Signal Management (`kill(pid, SIGTERM)` followed by `SIGKILL`): Provides guaranteed orderly cancellation of runaway child workloads.
+  5. Child Process Reaping (`waitpid(-1, &status, WNOHANG)`): Guarantees instantaneous reaping of exited child workloads and crashed worker processes, completely eliminating zombie processes (`defunct`).
+  6. Automated Worker Fault Recovery: Detects worker crash via `reap_children()` and automatically revives the worker pool with fresh child processes and new IPC socketpairs.
+- **Actual Output:**
+  ```
+  Running ASTRA Phase 3 (Workers and IPC) Integration Tests...
+  [PASS] IpcChannel socketpair communication and framing
+  [PASS] Worker process execution: successful job (exit code 0)
+  [PASS] Worker process execution: failing job (exit code 42)
+  [PASS] Worker process execution: job cancellation and process termination
+  [PASS] Worker crash detection, reaping, and auto-restart
+  [PASS] Clean worker pool shutdown without zombies
+  All Phase 3 tests passed successfully!
+  ```
+
+---
+
 ## 3. Summary of Files Created & Modified
 
 | File Path | Description / OS Role |
@@ -330,12 +360,22 @@ Every single command executed on the system is cataloged below, explaining the O
 | `include/astra/command.hpp` | Strongly typed CLI Command definitions via `std::variant` |
 | `include/astra/command_parser.hpp` | Tokenizer, path security check, and command parser header |
 | `include/astra/cli_handler.hpp` | CLI execution dispatcher and interactive REPL header |
+| `include/astra/ipc_channel.hpp` | Framed 32-byte header binary IPC socketpair wrapper and `UniqueFd` RAII |
+| `include/astra/worker.hpp` | Worker child process entry point and workload supervisor |
+| `include/astra/worker_manager.hpp` | WorkerManager pool, process lifecycle, signal cancellation, and reaping |
 | `src/main.cpp` | CLI entry point dispatching one-shot commands or launching REPL |
 | `src/resources/config.cpp` | Configuration loader and validator implementation |
 | `src/storage/job_store.cpp` | SQLite schema migrations, ACID CRUD, and audit logging |
 | `src/cli/command_parser.cpp` | Command parser, tokenizer, and path safety validation |
 | `src/cli/cli_handler.cpp` | Command execution logic, ASCII tables, and REPL loop |
+| `src/ipc/ipc_channel.cpp` | Bidirectional `AF_UNIX` framed read/write implementation with timeout polling |
+| `src/worker/worker.cpp` | Worker process loop, workload fork/execvp, output redirection, and cancellation |
+| `src/worker/worker_manager.cpp` | Child worker pool supervisor, non-blocking polling, reaping, and auto-restart |
+| `workloads/cpu_burn.cpp` | CPU workload test program (compute loops) |
+| `workloads/deliberate_failure.cpp` | Controlled non-zero exit code and crash test program |
+| `workloads/parallel_sum.cpp` | Multithreaded parallel reduction workload test program |
 | `tests/unit/test_phase0.cpp` | Phase 0 verification suite testing SQLite, JSON, and POSIX pipes |
 | `tests/unit/test_phase1.cpp` | Phase 1 unit test suite covering transitions, models, and persistence |
 | `tests/unit/test_phase2.cpp` | Phase 2 unit test suite covering command parsing, path security, and REPL |
+| `tests/integration/test_worker_lifecycle.cpp` | Phase 3 integration suite testing real child processes, cancellation, reaping, and crashes |
 | `README.md` & `LICENSE` | Project documentation and MIT license |
