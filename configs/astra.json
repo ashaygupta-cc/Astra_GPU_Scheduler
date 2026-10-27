@@ -1,0 +1,15 @@
+{
+  "max_workers": 6,
+  "max_cpu_slots": 6,
+  "default_policy": "priority_aging",
+  "worker_start_timeout_ms": 3000,
+  "heartbeat_interval_ms": 1000,
+  "heartbeat_timeout_ms": 5000,
+  "shutdown_mode": "drain",
+  "default_max_retries": 1,
+  "workload_root": "./workloads",
+  "database_path": "astra.db",
+  "event_log_path": "astra_events.jsonl",
+  "aging_interval_ms": 2000,
+  "aging_max_priority": 10
+}

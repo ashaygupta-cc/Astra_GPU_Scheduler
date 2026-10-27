@@ -1,0 +1,38 @@
+# Build directories
+build/
+build-*/
+bin/
+lib/
+out/
+.cache/
+
+# CMake artifacts
+CMakeCache.txt
+CMakeFiles/
+cmake_install.cmake
+Makefile
+*.ninja
+.ninja_*
+compile_commands.json
+
+# SQLite databases & temp files
+*.db
+*.db-journal
+*.db-wal
+*.db-shm
+
+# Log & trace files
+*.log
+*.jsonl
+*.core
+vgcore.*
+
+# IDE & OS files
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+
+# Executables
+*.exe
+*.out
