@@ -249,6 +249,66 @@ Every single command executed on the system is cataloged below, explaining the O
 
 ---
 
+### Step 11: Phase 1 (Domain & Storage Subsystem) Build & Verification
+
+- **Commands Executed:**
+  ```bash
+  cmake --build build
+  ctest --test-dir build --output-on-failure
+  ./build/test_phase1
+  ```
+- **OS Context / Purpose:**
+  Compiles `libastra_core.a` static library containing `config.cpp` and `job_store.cpp`. Executes automated unit tests for:
+  1. `JobState` enum conversions and state machine transition rules (`is_valid_transition`).
+  2. `Job` and `ResourceRequest` model validation and JSON serialization.
+  3. `AstraConfig` validation and file loader.
+  4. SQLite schema migration v1 (`jobs`, `job_dependencies`, `attempts`, `workers`, `events`, `workflows`), parameterized queries, and persistence verification across database re-open.
+- **Actual Output:**
+  ```
+  Running ASTRA Phase 1 (Domain & Storage) Unit Tests...
+  [PASS] JobState transitions and validation
+  [PASS] Job model validation and JSON serialization
+  [PASS] AstraConfig validation and JSON loader
+  [PASS] JobStore SQLite CRUD, migrations, and restart persistence
+  All Phase 1 tests passed successfully!
+  ```
+
+---
+
+### Step 12: Phase 2 (Command Line Interface & REPL) Build & Live Verification
+
+- **Commands Executed:**
+  ```bash
+  cmake --build build
+  ctest --test-dir build --output-on-failure
+  ./build/test_phase2
+  ./build/astra submit ./workloads/matrix_mul_cpu --cpu-slots 2 --ram-mb 256 --priority 6
+  ./build/astra ps --all
+  ./build/astra inspect job-483448-1
+  ./build/astra cancel job-483448-1
+  ./build/astra events
+  ```
+- **OS Context / Purpose:**
+  Integrates `command_parser.cpp` and `cli_handler.cpp` into `astra_core` and `astra` CLI binary. Validates:
+  1. Command tokenization handling quotes, spaces, and escape sequences without invoking any shell interpreter.
+  2. Workload path sanitization and directory traversal prevention (`..`, `;`, `&`, `|` rejected).
+  3. Live end-to-end command dispatching: submitting jobs, querying tabular state, inspecting metadata, cancelling active jobs, and recording append-only audit events in SQLite.
+- **Actual Output:**
+  ```
+  [SUBMITTED] Job ID: job-483448-1
+    Workload:    ./workloads/matrix_mul_cpu
+    Initial:     QUEUED
+    Priority:    6
+    Device:      CPU_ONLY
+    Resources:   CPU=2 slots, RAM=256 MB
+  JOB ID          NAME              STATE          DEVICE        PRI   WORKER/PID    ELAPSED   EXIT  
+  ---------------------------------------------------------------------------------------------------
+  job-483448-1    matrix_mul_cpu    QUEUED         CPU_ONLY      6     -             0s        -     
+  [CANCELLED] Job job-483448-1 cancelled successfully.
+  ```
+
+---
+
 ## 3. Summary of Files Created & Modified
 
 | File Path | Description / OS Role |
@@ -256,11 +316,26 @@ Every single command executed on the system is cataloged below, explaining the O
 | `docs/ASTRA_BLUEPRINT.md` | Authoritative engineering blueprint and Antigravity master prompt |
 | `docs/implementation-plan.md` | Architecture, thread model, IPC protocol design, and phase roadmap |
 | `docs/OS_COMMANDS_AND_SETUP_REPORT.md` | This document; full technical audit of all OS setup, WSL commands, and permissions |
-| `CMakeLists.txt` | C++20 build definition, dependency linking (`pthread`, `sqlite3`, `ncurses`), and test definitions |
+| `CMakeLists.txt` | C++20 build definition, `astra_core` static library, dependencies (`pthread`, `sqlite3`, `ncurses`), and test definitions |
 | `CMakePresets.json` | Reproducible configuration presets (`default`, `release`, `asan`) |
 | `.gitignore` | Ignores build artifacts, object files, `.db`, core dumps, and editor files |
 | `configs/astra.json` | Default runtime configuration parameters |
 | `include/astra/version.hpp` | Versioning constants and ASCII banner |
-| `src/main.cpp` | CLI entry point with hardware/library inspection and diagnostic output |
+| `include/astra/job_state.hpp` | JobState enum and validated 12-state state machine |
+| `include/astra/job.hpp` | Strongly typed Job, ResourceRequest, and JobAttempt domain types |
+| `include/astra/worker_info.hpp` | WorkerInfo struct and WorkerState enum |
+| `include/astra/event.hpp` | Audit Event model and 17 EventType definitions |
+| `include/astra/config.hpp` | AstraConfig declaration and validation |
+| `include/astra/job_store.hpp` | SQLite storage engine header (PIMPL) |
+| `include/astra/command.hpp` | Strongly typed CLI Command definitions via `std::variant` |
+| `include/astra/command_parser.hpp` | Tokenizer, path security check, and command parser header |
+| `include/astra/cli_handler.hpp` | CLI execution dispatcher and interactive REPL header |
+| `src/main.cpp` | CLI entry point dispatching one-shot commands or launching REPL |
+| `src/resources/config.cpp` | Configuration loader and validator implementation |
+| `src/storage/job_store.cpp` | SQLite schema migrations, ACID CRUD, and audit logging |
+| `src/cli/command_parser.cpp` | Command parser, tokenizer, and path safety validation |
+| `src/cli/cli_handler.cpp` | Command execution logic, ASCII tables, and REPL loop |
 | `tests/unit/test_phase0.cpp` | Phase 0 verification suite testing SQLite, JSON, and POSIX pipes |
+| `tests/unit/test_phase1.cpp` | Phase 1 unit test suite covering transitions, models, and persistence |
+| `tests/unit/test_phase2.cpp` | Phase 2 unit test suite covering command parsing, path security, and REPL |
 | `README.md` & `LICENSE` | Project documentation and MIT license |
