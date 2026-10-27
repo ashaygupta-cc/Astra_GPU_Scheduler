@@ -1,6 +1,10 @@
 #include "astra/cli_handler.hpp"
 #include "astra/command_parser.hpp"
 #include "astra/version.hpp"
+#include "astra/tui.hpp"
+#include "astra/tui_snapshot.hpp"
+#include "astra/resource_manager.hpp"
+#include "astra/worker_manager.hpp"
 
 #include <iomanip>
 #include <sstream>
@@ -410,6 +414,24 @@ int CliHandler::execute(const Command& cmd, std::ostream& out, std::ostream& err
                     << ev.payload_json
                     << "\n";
             }
+            return 0;
+        }
+
+        else if constexpr (std::is_same_v<T, TopCommand>) {
+            ResourceManager rm(config_.max_cpu_slots, 4096);
+            WorkerManager wm(config_.max_workers);
+            auto start_tp = std::chrono::system_clock::now();
+            Tui tui;
+            tui.run(
+                [&]() -> TuiSnapshot {
+                    return collect_tui_snapshot(store_, rm, wm, config_.default_policy, start_tp);
+                },
+                [&](const std::string& job_id) -> bool {
+                    std::string err_str;
+                    return store_.update_job_state(job_id, JobState::Cancelled, 0, "Cancelled via TUI", &err_str);
+                },
+                nullptr
+            );
             return 0;
         }
 

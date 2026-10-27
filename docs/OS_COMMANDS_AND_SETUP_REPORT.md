@@ -375,6 +375,34 @@ Every single command executed on the system is cataloged below, explaining the O
   All Phase 4 tests passed successfully!
   ```
 
+### Step 15: Phase 5 Implementation — Terminal User Interface (TUI) & Telemetry Aggregation
+- **Commands Executed:**
+  ```bash
+  wsl -d Ubuntu-24.04 -- cmake --build build
+  wsl -d Ubuntu-24.04 -- ctest --test-dir build --output-on-failure
+  wsl -d Ubuntu-24.04 -- ./build/test_phase5
+  ```
+- **Permission Level:** Standard User (`ashay` in WSL2 Ubuntu 24.04)
+- **OS Mechanics & Academic Purpose:**
+  1. `ncurses` Terminal Emulation & Frame Buffering:
+     - Leverages `libncurses` to construct a high-performance terminal user interface directly over ANSI/VT100 escape sequences.
+     - Terminal setup uses `initscr()`, `cbreak()` (disabling line buffering), `noecho()` (disabling terminal echo of keypresses), `curs_set(0)` (hiding hardware cursor), and `timeout(100)` enabling non-blocking keyboard input polling at 10 Hz refresh rate.
+     - Terminal color pairs configured with `start_color()` and `init_pair()` for cyan headers, green success states, yellow queues, and red failure alerts.
+     - Safe headless degradation: detects `!isatty(STDIN_FILENO)` to allow automatic testing in non-interactive CI environments without terminal crashing.
+  2. Telemetry Aggregation & System Snapshot:
+     - Aggregates operational state across `JobStore`, `ResourceManager`, and `WorkerManager` into an atomic `TuiSnapshot`.
+     - Displays live hardware capacity (total/reserved CPU slots, memory usage, GPU detection) and dynamic progress bars (`[====    ]`).
+  3. Interactive Dashboard Navigation:
+     - Supports 6 live views: Jobs Dashboard, Worker Pool, System Hardware Telemetry, Event Audit Log, Job Details, and Workload Logs.
+     - Interactive keyboard handling: `[Tab]` to cycle views, `[Up]/[Down]` arrow keys to select jobs, `[Enter]` to inspect, `[c]` to cancel running jobs, and `[q]` to cleanly exit.
+- **Actual Output:**
+  ```
+  Running ASTRA Phase 5 (TUI & Telemetry) Unit Tests...
+  [PASS] TuiSnapshot collection, metric aggregation, and telemetry labeling
+  [PASS] Tui view transitions and headless rendering stability
+  All Phase 5 tests passed successfully!
+  ```
+
 ---
 
 ## 3. Summary of Files Created & Modified
@@ -404,6 +432,8 @@ Every single command executed on the system is cataloged below, explaining the O
 | `include/astra/scheduling_policy.hpp` | FCFS, Priority, Priority Aging, and SJF scheduling policy interfaces |
 | `include/astra/resource_manager.hpp` | Logical resource reservations, admission limits, and hardware telemetry |
 | `include/astra/scheduler.hpp` | Scheduler Core single-threaded event loop and dependency coordinator |
+| `include/astra/tui_snapshot.hpp` | System snapshot collector for real-time telemetry and state aggregation |
+| `include/astra/tui.hpp` | Full-screen ncurses terminal user interface dashboard and view switcher |
 | `src/main.cpp` | CLI entry point dispatching one-shot commands or launching REPL |
 | `src/resources/config.cpp` | Configuration loader and validator implementation |
 | `src/storage/job_store.cpp` | SQLite schema migrations, ACID CRUD, and audit logging |
@@ -415,6 +445,8 @@ Every single command executed on the system is cataloged below, explaining the O
 | `src/scheduler/scheduling_policy.cpp` | Implementation of FCFS, Priority, Priority Aging, and SJF algorithms |
 | `src/resources/resource_manager.cpp` | Resource tracking, `/proc/meminfo` telemetry parser, and exact-once release |
 | `src/scheduler/scheduler.cpp` | Scheduler event loop, decision events, and worker dispatching |
+| `src/tui/tui_snapshot.cpp` | Real-time metric aggregation across storage, resources, and workers |
+| `src/tui/tui.cpp` | Full-screen ncurses dashboard rendering, color pairs, progress bars, and input handling |
 | `workloads/cpu_burn.cpp` | CPU workload test program (compute loops) |
 | `workloads/deliberate_failure.cpp` | Controlled non-zero exit code and crash test program |
 | `workloads/parallel_sum.cpp` | Multithreaded parallel reduction workload test program |
@@ -423,4 +455,5 @@ Every single command executed on the system is cataloged below, explaining the O
 | `tests/unit/test_phase2.cpp` | Phase 2 unit test suite covering command parsing, path security, and REPL |
 | `tests/integration/test_worker_lifecycle.cpp` | Phase 3 integration suite testing real child processes, cancellation, reaping, and crashes |
 | `tests/unit/test_phase4.cpp` | Phase 4 test suite verifying policy ordering, starvation prevention, admission, and scheduler step |
+| `tests/unit/test_phase5.cpp` | Phase 5 unit test suite verifying snapshot aggregation, telemetry, and headless TUI rendering |
 | `README.md` & `LICENSE` | Project documentation and MIT license |
