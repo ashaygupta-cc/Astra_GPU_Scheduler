@@ -89,6 +89,11 @@ struct ShutdownCommand {
     bool immediate = false;
 };
 
+struct BenchmarkCommand {
+    size_t jobs = 20;
+    int slots = 2;
+};
+
 struct ReplCommand {};
 
 struct InvalidCommand {
@@ -110,6 +115,7 @@ using Command = std::variant<
     EventsCommand,
     ReplayCommand,
     DeadlockCommand,
+    BenchmarkCommand,
     DemoCommand,
     TopCommand,
     ShutdownCommand,

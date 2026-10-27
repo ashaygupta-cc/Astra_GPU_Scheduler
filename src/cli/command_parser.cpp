@@ -219,9 +219,21 @@ Command CommandParser::parse(const std::vector<std::string>& raw_tokens, const s
 
     if (subcmd == "replay") {
         if (start_idx + 1 >= raw_tokens.size()) {
-            return InvalidCommand{"Usage: astra replay <run-id>"};
+            return InvalidCommand{"Usage: astra replay <job-id|file.jsonl>"};
         }
         return ReplayCommand{raw_tokens[start_idx + 1]};
+    }
+
+    if (subcmd == "bench" || subcmd == "benchmark") {
+        BenchmarkCommand cmd;
+        for (size_t i = start_idx + 1; i < raw_tokens.size(); ++i) {
+            if (raw_tokens[i] == "--jobs" && i + 1 < raw_tokens.size()) {
+                cmd.jobs = static_cast<size_t>(std::stoul(raw_tokens[++i]));
+            } else if (raw_tokens[i] == "--slots" && i + 1 < raw_tokens.size()) {
+                cmd.slots = std::stoi(raw_tokens[++i]);
+            }
+        }
+        return cmd;
     }
 
     if (subcmd == "shutdown") {

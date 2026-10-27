@@ -7,6 +7,8 @@
 #include "astra/worker_manager.hpp"
 #include "astra/workflow.hpp"
 #include "astra/deadlock_detector.hpp"
+#include "astra/replay_engine.hpp"
+#include "astra/benchmark.hpp"
 
 #include <iomanip>
 #include <sstream>
@@ -76,6 +78,8 @@ int CliHandler::execute(const Command& cmd, std::ostream& out, std::ostream& err
                 << "  config show               Display current runtime configuration\n"
                 << "  events [--job <id>]       Query append-only audit event history\n"
                 << "  workflow submit <file>    Submit a multi-job DAG workflow\n"
+                << "  replay <id|file.jsonl>    Replay deterministic execution timeline\n"
+                << "  bench [--jobs N]          Run comparative scheduling policy benchmark\n"
                 << "  deadlock demo             Run Banker's Algorithm deadlock simulation\n"
                 << "  demo                      Execute automated scheduling demo\n"
                 << "  top                       Open interactive full-screen ncurses TUI\n"
@@ -589,6 +593,29 @@ int CliHandler::execute(const Command& cmd, std::ostream& out, std::ostream& err
 
         else if constexpr (std::is_same_v<T, DeadlockCommand>) {
             out << DeadlockDetector::run_deadlock_simulation_demo();
+            return 0;
+        }
+
+        else if constexpr (std::is_same_v<T, ReplayCommand>) {
+            std::vector<ReplayStep> steps;
+            if (std::filesystem::exists(c.run_id)) {
+                steps = ReplayEngine::load_from_jsonl(c.run_id);
+            } else {
+                steps = ReplayEngine::load_from_store(store_, c.run_id);
+            }
+            if (steps.empty()) {
+                out << "No replay events found for identifier: " << c.run_id << "\n";
+                return 1;
+            }
+            out << ReplayEngine::render_timeline_table(steps);
+            return 0;
+        }
+
+        else if constexpr (std::is_same_v<T, BenchmarkCommand>) {
+            out << "Running ASTRA Scheduling Policy Comparative Benchmark ("
+                << c.jobs << " synthetic jobs, " << c.slots << " slots)...\n";
+            auto results = PolicyBenchmarkSuite::run_comparison(c.jobs, c.slots);
+            out << PolicyBenchmarkSuite::format_benchmark_report(results);
             return 0;
         }
 

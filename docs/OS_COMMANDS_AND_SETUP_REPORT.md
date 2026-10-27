@@ -541,6 +541,54 @@ Every single command executed on the system is cataloged below, explaining the O
   100% tests passed, 0 tests failed out of 9
   ```
 
+### Step 19: Phase 9 Implementation — Deterministic Replay Engine, Policy Benchmarks & Automated End-to-End Release Demo
+- **Commands Executed:**
+  ```bash
+  wsl -d Ubuntu-24.04 -- cmake -B build -G Ninja
+  wsl -d Ubuntu-24.04 -- cmake --build build
+  wsl -d Ubuntu-24.04 -- ctest --test-dir build --output-on-failure
+  wsl -d Ubuntu-24.04 -- ./build/test_phase9
+  wsl -d Ubuntu-24.04 -- bash scripts/demo.sh
+  ```
+- **Permission Level:** Standard User (`ashay` in WSL2 Ubuntu 24.04)
+- **OS Mechanics & Academic Purpose:**
+  1. Deterministic Event Replay & Execution Timeline Reconstruction:
+     - Leverages immutable append-only event streams recorded in SQLite or structured JSONL logs.
+     - Calculates relative time differentials ($\Delta t = t_i - t_0$) with microsecond resolution.
+     - Renders an ASCII timeline reconstruction showing exact state transitions, worker dispatches, and payload metadata without re-executing workload binaries.
+  2. Operating Systems Scheduling Policy Benchmark Suite:
+     - Implements discrete-event synthetic workload evaluation across FCFS, Strict Priority, Priority Aging, and SJF.
+     - Empirically demonstrates classical OS scheduling principles:
+       - FCFS exhibits the **Convoy Effect** when short tasks queue behind long CPU bursts.
+       - Strict Priority induces **Unbounded Starvation** on low-priority jobs during high-arrival bursts.
+       - Priority Aging guarantees **Starvation Freedom** by monotonically elevating effective priority as queuing wait time elapses.
+       - Shortest Job First (SJF) achieves **Minimal Average Turnaround Time**.
+  3. Comprehensive End-to-End Demo Automation:
+     - Implemented `scripts/demo.sh` executing all 9 milestone phases in 25 seconds (well under the 2-minute gate limit).
+     - Validates toolchain diagnostics, policy benchmarking, Banker's deadlock safety lab, linear & diamond DAG pipelines, 3-color DFS cycle rejection, cooperative crash recovery, GPU host fallback, and deterministic timeline replay.
+- **Actual Output:**
+  ```
+  Running ASTRA Phase 9 (Replay & Benchmarks) Unit & Integration Tests...
+  [PASS] Deterministic event replay from JobStore SQLite database
+  [PASS] Deterministic event replay from JSONL event log
+  [PASS] Scheduling policy benchmarks, makespan accounting, and starvation verification
+  [PASS] CLI command dispatch for 'replay' and 'bench'
+  All Phase 9 tests passed successfully!
+
+  Test project /mnt/c/Users/ASHAY_GUPTA/Desktop/OS GPU Scheduler/build
+   1/10 Test  #1: Phase0Sanity .......................   Passed    0.01 sec
+   2/10 Test  #2: Phase1DomainAndStorage .............   Passed    0.16 sec
+   3/10 Test  #3: Phase2CLI ..........................   Passed    0.11 sec
+   4/10 Test  #4: Phase3WorkersAndIPC ................   Passed    2.02 sec
+   5/10 Test  #5: Phase4SchedulerCore ................   Passed    1.64 sec
+   6/10 Test  #6: Phase5TUIAndTelemetry ..............   Passed    0.13 sec
+   7/10 Test  #7: Phase6DAGWorkflows .................   Passed    7.41 sec
+   8/10 Test  #8: Phase7ReliabilityAndDeadlockLab ....   Passed    0.01 sec
+   9/10 Test  #9: Phase8GPUAndCheckpointing ..........   Passed    0.14 sec
+  10/10 Test #10: Phase9ReplayBenchmarksAndRelease ...   Passed    0.22 sec
+  100% tests passed, 0 tests failed out of 10
+  ```
+
 ---
 
 ## 3. Summary of Files Created & Modified
@@ -561,7 +609,7 @@ Every single command executed on the system is cataloged below, explaining the O
 | `include/astra/event.hpp` | Audit Event model and 17 EventType definitions |
 | `include/astra/config.hpp` | AstraConfig declaration and validation |
 | `include/astra/job_store.hpp` | SQLite storage engine header (PIMPL) with workflow persistence |
-| `include/astra/command.hpp` | Strongly typed CLI Command definitions via `std::variant` (including WorkflowCommand) |
+| `include/astra/command.hpp` | Strongly typed CLI Command definitions via `std::variant` (including WorkflowCommand, ReplayCommand, BenchmarkCommand) |
 | `include/astra/command_parser.hpp` | Tokenizer, path security check, and command parser header |
 | `include/astra/cli_handler.hpp` | CLI execution dispatcher and interactive REPL header |
 | `include/astra/ipc_channel.hpp` | Framed 32-byte header binary IPC socketpair wrapper and `UniqueFd` RAII |
@@ -575,11 +623,13 @@ Every single command executed on the system is cataloged below, explaining the O
 | `include/astra/workflow.hpp` | DAG workflow domain models, Kahn's algorithm, and 3-color DFS cycle detector |
 | `include/astra/deadlock_detector.hpp` | Classical Banker's Algorithm, Wait-For Graph (WFG), and explainable victim preemption |
 | `include/astra/checkpoint.hpp` | Atomic checkpoint persistence, fsync synchronization, and crash recovery |
+| `include/astra/replay_engine.hpp` | Deterministic timeline replay and JSONL audit reconstructor |
+| `include/astra/benchmark.hpp` | Synthetic workload generator and comparative OS policy benchmark suite |
 | `src/main.cpp` | CLI entry point dispatching one-shot commands or launching REPL |
 | `src/resources/config.cpp` | Configuration loader and validator implementation |
 | `src/storage/job_store.cpp` | SQLite schema migrations, ACID CRUD, dependency queries, and workflow tracking |
 | `src/cli/command_parser.cpp` | Command parser, tokenizer, and path safety validation |
-| `src/cli/cli_handler.cpp` | Command execution logic, workflow submission/status/listing, and REPL loop |
+| `src/cli/cli_handler.cpp` | Command execution logic, replay timeline, benchmark dispatcher, and REPL loop |
 | `src/ipc/ipc_channel.cpp` | Bidirectional `AF_UNIX` framed read/write implementation with timeout polling |
 | `src/worker/worker.cpp` | Worker process loop, workload fork/execvp, output redirection, and cancellation |
 | `src/worker/worker_manager.cpp` | Child worker pool supervisor, non-blocking polling, reaping, and auto-restart |
@@ -591,6 +641,9 @@ Every single command executed on the system is cataloged below, explaining the O
 | `src/workflow/workflow.cpp` | DagEngine JSON parser, Kahn's topological sort, DFS cycle detector, and job factory |
 | `src/deadlock/deadlock_detector.cpp` | Banker's safety loop, WFG cycle finder, victim cost ranking, and interactive lab demo |
 | `src/checkpoint/checkpoint.cpp` | Atomic checkpoint writer using temporary files, fsync, and atomic POSIX rename |
+| `src/replay/replay_engine.cpp` | Event sorting, delta timestamps, step index calculation, and timeline table formatter |
+| `src/benchmark/benchmark.cpp` | Multi-slot discrete-event simulator evaluating FCFS, Priority, Aging, and SJF |
+| `scripts/demo.sh` | Comprehensive end-to-end 25-second demo script exercising all verification gates |
 | `examples/workflow.json` | Linear DAG workflow pipeline definition (extract -> transform -> load) |
 | `examples/cyclic_workflow.json` | Cyclic DAG example for testing error detection (A -> B -> C -> A) |
 | `examples/diamond_workflow.json` | Diamond DAG workflow with concurrent parallel branches and join step |
@@ -608,4 +661,6 @@ Every single command executed on the system is cataloged below, explaining the O
 | `tests/unit/test_phase6.cpp` | Phase 6 unit test suite verifying DAG validation, Kahn's sort, diamond join, and failure cascades |
 | `tests/unit/test_phase7.cpp` | Phase 7 unit test suite verifying Banker's safety, WFG cycle detection, and victim selection |
 | `tests/unit/test_phase8.cpp` | Phase 8 unit test suite verifying atomic checkpointing, crash resume, and GPU telemetry admission |
+| `tests/unit/test_phase9.cpp` | Phase 9 unit test suite verifying event replay, scheduling benchmarks, and CLI dispatch |
 | `README.md` & `LICENSE` | Project documentation and MIT license |
+

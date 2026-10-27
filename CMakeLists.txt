@@ -85,6 +85,8 @@ add_library(astra_core STATIC
     src/workflow/workflow.cpp
     src/deadlock/deadlock_detector.cpp
     src/checkpoint/checkpoint.cpp
+    src/replay/replay_engine.cpp
+    src/benchmark/benchmark.cpp
 )
 target_include_directories(astra_core PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/include)
 target_link_libraries(astra_core PUBLIC ${ASTRA_COMMON_LIBS})
@@ -183,6 +185,14 @@ target_link_libraries(test_phase8 PRIVATE astra_core ${ASTRA_COMMON_LIBS})
 add_dependencies(test_phase8 checkpointable_sum vector_add)
 add_test(NAME Phase8GPUAndCheckpointing COMMAND test_phase8)
 set_tests_properties(Phase8GPUAndCheckpointing PROPERTIES WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}")
+
+add_executable(test_phase9
+    tests/unit/test_phase9.cpp
+)
+target_link_libraries(test_phase9 PRIVATE astra_core ${ASTRA_COMMON_LIBS})
+add_test(NAME Phase9ReplayBenchmarksAndRelease COMMAND test_phase9)
+set_tests_properties(Phase9ReplayBenchmarksAndRelease PROPERTIES WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}")
+
 
 
 
