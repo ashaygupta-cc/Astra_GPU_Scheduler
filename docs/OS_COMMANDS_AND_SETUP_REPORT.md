@@ -494,6 +494,53 @@ Every single command executed on the system is cataloged below, explaining the O
   100% tests passed, 0 tests failed out of 8
   ```
 
+### Step 18: Phase 8 Implementation — GPU Awareness & Cooperative Checkpoint-Resume Protocol
+- **Commands Executed:**
+  ```bash
+  wsl -d Ubuntu-24.04 -- cmake -B build -G Ninja
+  wsl -d Ubuntu-24.04 -- cmake --build build
+  wsl -d Ubuntu-24.04 -- ctest --test-dir build --output-on-failure
+  wsl -d Ubuntu-24.04 -- ./build/test_phase8
+  wsl -d Ubuntu-24.04 -- ./build/workloads/checkpointable_sum --target 100000 --fail-at 50000 --checkpoint-file test.ckpt
+  wsl -d Ubuntu-24.04 -- ./build/workloads/checkpointable_sum --target 100000 --resume --checkpoint-file test.ckpt
+  wsl -d Ubuntu-24.04 -- ./build/workloads/vector_add
+  ```
+- **Permission Level:** Standard User (`ashay` in WSL2 Ubuntu 24.04)
+- **OS Mechanics & Academic Purpose:**
+  1. Atomic Checkpointing via POSIX File Renaming:
+     - Guarantees crash consistency: Writes process state to a temporary file (`path.tmp`), invokes `fsync(fd)` to flush OS page cache buffers directly to non-volatile storage, and applies `std::filesystem::rename()` (`rename(2)` syscall).
+     - Because `rename()` is an atomic filesystem operation on POSIX compliant kernels, partially written or corrupt checkpoint files can never replace valid state, preventing crash-recovery corruption.
+  2. Cooperative Checkpoint & Resume Protocol:
+     - Demonstrated by `checkpointable_sum`: processes periodically checkpoint computation state (`current_step`, `running_sum`).
+     - Upon failure (exit code 42), the supervisor detects state, and reinvokes the workload with `--resume --checkpoint-file <path>`, restoring intermediate accumulator values without re-executing completed computations.
+  3. Real Hardware GPU Telemetry & Host Fallback:
+     - Directly interfaces with host hardware: detected active NVIDIA RTX 3050 Laptop GPU (4096 MB VRAM) under WSL2 `/usr/lib/wsl/lib/nvidia-smi` and Driver 591.84.
+     - Enforces hardware-backed admission control: `GpuRequired` jobs are admitted only when physical GPU VRAM is available; second concurrent GPU jobs are denied with strict exclusive reservation semantics.
+     - Compiles `cuda/vector_add.cu` with graceful CXX host fallback if `nvcc` compiler is not installed in the Linux subsystem, ensuring portability across varied student environments.
+- **Actual Output:**
+  ```
+  Running ASTRA Phase 8 (GPU & Checkpointing) Unit & Integration Tests...
+  [PASS] Atomic checkpoint serialization, fsync, and atomic POSIX rename
+  [PASS] Checkpointable workload failure simulation and state recovery
+    Telemetry Source: hardware (WSL2 NVIDIA Driver & /proc/meminfo)
+    NVIDIA GPU Detected: YES (Hardware)
+    Total GPU VRAM: 4096 MB
+  [PASS] GPU hardware telemetry awareness and admission control
+  All Phase 8 tests passed successfully!
+
+  Test project /mnt/c/Users/ASHAY_GUPTA/Desktop/OS GPU Scheduler/build
+  1/9 Test #1: Phase0Sanity ......................   Passed    0.01 sec
+  2/9 Test #2: Phase1DomainAndStorage ............   Passed    0.14 sec
+  3/9 Test #3: Phase2CLI .........................   Passed    0.11 sec
+  4/9 Test #4: Phase3WorkersAndIPC ...............   Passed    2.02 sec
+  5/9 Test #5: Phase4SchedulerCore ...............   Passed    1.72 sec
+  6/9 Test #6: Phase5TUIAndTelemetry .............   Passed    0.09 sec
+  7/9 Test #7: Phase6DAGWorkflows ................   Passed    7.32 sec
+  8/9 Test #8: Phase7ReliabilityAndDeadlockLab ...   Passed    0.01 sec
+  9/9 Test #9: Phase8GPUAndCheckpointing .........   Passed    0.11 sec
+  100% tests passed, 0 tests failed out of 9
+  ```
+
 ---
 
 ## 3. Summary of Files Created & Modified
@@ -527,6 +574,7 @@ Every single command executed on the system is cataloged below, explaining the O
 | `include/astra/tui.hpp` | Full-screen ncurses terminal user interface dashboard and view switcher |
 | `include/astra/workflow.hpp` | DAG workflow domain models, Kahn's algorithm, and 3-color DFS cycle detector |
 | `include/astra/deadlock_detector.hpp` | Classical Banker's Algorithm, Wait-For Graph (WFG), and explainable victim preemption |
+| `include/astra/checkpoint.hpp` | Atomic checkpoint persistence, fsync synchronization, and crash recovery |
 | `src/main.cpp` | CLI entry point dispatching one-shot commands or launching REPL |
 | `src/resources/config.cpp` | Configuration loader and validator implementation |
 | `src/storage/job_store.cpp` | SQLite schema migrations, ACID CRUD, dependency queries, and workflow tracking |
@@ -542,12 +590,15 @@ Every single command executed on the system is cataloged below, explaining the O
 | `src/tui/tui.cpp` | Full-screen ncurses dashboard rendering, color pairs, progress bars, and input handling |
 | `src/workflow/workflow.cpp` | DagEngine JSON parser, Kahn's topological sort, DFS cycle detector, and job factory |
 | `src/deadlock/deadlock_detector.cpp` | Banker's safety loop, WFG cycle finder, victim cost ranking, and interactive lab demo |
+| `src/checkpoint/checkpoint.cpp` | Atomic checkpoint writer using temporary files, fsync, and atomic POSIX rename |
 | `examples/workflow.json` | Linear DAG workflow pipeline definition (extract -> transform -> load) |
 | `examples/cyclic_workflow.json` | Cyclic DAG example for testing error detection (A -> B -> C -> A) |
 | `examples/diamond_workflow.json` | Diamond DAG workflow with concurrent parallel branches and join step |
 | `workloads/cpu_burn.cpp` | CPU workload test program (compute loops) |
 | `workloads/deliberate_failure.cpp` | Controlled non-zero exit code and crash test program |
 | `workloads/parallel_sum.cpp` | Multithreaded parallel reduction workload test program |
+| `workloads/checkpointable_sum.cpp` | Cooperative checkpoint-resume workload with simulated crash recovery |
+| `cuda/vector_add.cu` | CUDA vector addition kernel with automated CXX host fallback |
 | `tests/unit/test_phase0.cpp` | Phase 0 verification suite testing SQLite, JSON, and POSIX pipes |
 | `tests/unit/test_phase1.cpp` | Phase 1 unit test suite covering transitions, models, and persistence |
 | `tests/unit/test_phase2.cpp` | Phase 2 unit test suite covering command parsing, path security, and REPL |
@@ -556,4 +607,5 @@ Every single command executed on the system is cataloged below, explaining the O
 | `tests/unit/test_phase5.cpp` | Phase 5 unit test suite verifying snapshot aggregation, telemetry, and headless TUI rendering |
 | `tests/unit/test_phase6.cpp` | Phase 6 unit test suite verifying DAG validation, Kahn's sort, diamond join, and failure cascades |
 | `tests/unit/test_phase7.cpp` | Phase 7 unit test suite verifying Banker's safety, WFG cycle detection, and victim selection |
+| `tests/unit/test_phase8.cpp` | Phase 8 unit test suite verifying atomic checkpointing, crash resume, and GPU telemetry admission |
 | `README.md` & `LICENSE` | Project documentation and MIT license |

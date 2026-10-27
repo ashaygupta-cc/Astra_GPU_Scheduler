@@ -84,6 +84,7 @@ add_library(astra_core STATIC
     src/tui/tui.cpp
     src/workflow/workflow.cpp
     src/deadlock/deadlock_detector.cpp
+    src/checkpoint/checkpoint.cpp
 )
 target_include_directories(astra_core PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/include)
 target_link_libraries(astra_core PUBLIC ${ASTRA_COMMON_LIBS})
@@ -98,6 +99,14 @@ set_target_properties(deliberate_failure PROPERTIES RUNTIME_OUTPUT_DIRECTORY "${
 add_executable(parallel_sum workloads/parallel_sum.cpp)
 target_link_libraries(parallel_sum PRIVATE Threads::Threads)
 set_target_properties(parallel_sum PROPERTIES RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/workloads")
+
+add_executable(checkpointable_sum workloads/checkpointable_sum.cpp)
+target_link_libraries(checkpointable_sum PRIVATE astra_core ${ASTRA_COMMON_LIBS})
+set_target_properties(checkpointable_sum PROPERTIES RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/workloads")
+
+add_executable(vector_add cuda/vector_add.cu)
+set_source_files_properties(cuda/vector_add.cu PROPERTIES LANGUAGE CXX)
+set_target_properties(vector_add PROPERTIES RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/workloads")
 
 # Main ASTRA scheduler executable
 add_executable(astra
@@ -166,5 +175,14 @@ add_executable(test_phase7
 target_link_libraries(test_phase7 PRIVATE astra_core ${ASTRA_COMMON_LIBS})
 add_test(NAME Phase7ReliabilityAndDeadlockLab COMMAND test_phase7)
 set_tests_properties(Phase7ReliabilityAndDeadlockLab PROPERTIES WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}")
+
+add_executable(test_phase8
+    tests/unit/test_phase8.cpp
+)
+target_link_libraries(test_phase8 PRIVATE astra_core ${ASTRA_COMMON_LIBS})
+add_dependencies(test_phase8 checkpointable_sum vector_add)
+add_test(NAME Phase8GPUAndCheckpointing COMMAND test_phase8)
+set_tests_properties(Phase8GPUAndCheckpointing PROPERTIES WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}")
+
 
 
