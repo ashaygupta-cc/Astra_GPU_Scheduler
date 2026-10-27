@@ -82,6 +82,7 @@ add_library(astra_core STATIC
     src/scheduler/scheduler.cpp
     src/tui/tui_snapshot.cpp
     src/tui/tui.cpp
+    src/workflow/workflow.cpp
 )
 target_include_directories(astra_core PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/include)
 target_link_libraries(astra_core PUBLIC ${ASTRA_COMMON_LIBS})
@@ -149,3 +150,12 @@ add_executable(test_phase5
 target_link_libraries(test_phase5 PRIVATE astra_core ${ASTRA_COMMON_LIBS})
 add_test(NAME Phase5TUIAndTelemetry COMMAND test_phase5)
 set_tests_properties(Phase5TUIAndTelemetry PROPERTIES WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}")
+
+add_executable(test_phase6
+    tests/unit/test_phase6.cpp
+)
+target_link_libraries(test_phase6 PRIVATE astra_core ${ASTRA_COMMON_LIBS})
+add_dependencies(test_phase6 cpu_burn deliberate_failure parallel_sum)
+add_test(NAME Phase6DAGWorkflows COMMAND test_phase6)
+set_tests_properties(Phase6DAGWorkflows PROPERTIES WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}")
+

@@ -1,0 +1,57 @@
+{
+  "name": "diamond_pipeline",
+  "jobs": [
+    {
+      "key": "prep",
+      "name": "Preparation Root",
+      "workload": "cpu_burn",
+      "args": ["1"],
+      "priority": 8,
+      "resources": {
+        "cpu_slots": 1,
+        "ram_mb": 256,
+        "device": "CPU"
+      },
+      "depends_on": []
+    },
+    {
+      "key": "branch_cpu",
+      "name": "Parallel CPU Branch",
+      "workload": "parallel_sum",
+      "args": ["300000", "2"],
+      "priority": 6,
+      "resources": {
+        "cpu_slots": 2,
+        "ram_mb": 512,
+        "device": "CPU"
+      },
+      "depends_on": ["prep"]
+    },
+    {
+      "key": "branch_burn",
+      "name": "Parallel Burn Branch",
+      "workload": "cpu_burn",
+      "args": ["1"],
+      "priority": 6,
+      "resources": {
+        "cpu_slots": 1,
+        "ram_mb": 256,
+        "device": "CPU"
+      },
+      "depends_on": ["prep"]
+    },
+    {
+      "key": "aggregate",
+      "name": "Aggregation Join",
+      "workload": "cpu_burn",
+      "args": ["1"],
+      "priority": 9,
+      "resources": {
+        "cpu_slots": 1,
+        "ram_mb": 256,
+        "device": "CPU"
+      },
+      "depends_on": ["branch_cpu", "branch_burn"]
+    }
+  ]
+}

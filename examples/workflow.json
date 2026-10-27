@@ -1,0 +1,44 @@
+{
+  "name": "etl_pipeline",
+  "jobs": [
+    {
+      "key": "extract",
+      "name": "Extract step",
+      "workload": "cpu_burn",
+      "args": ["1"],
+      "priority": 5,
+      "resources": {
+        "cpu_slots": 1,
+        "ram_mb": 256,
+        "device": "CPU"
+      },
+      "depends_on": []
+    },
+    {
+      "key": "transform",
+      "name": "Transform step",
+      "workload": "parallel_sum",
+      "args": ["500000", "2"],
+      "priority": 7,
+      "resources": {
+        "cpu_slots": 2,
+        "ram_mb": 512,
+        "device": "CPU"
+      },
+      "depends_on": ["extract"]
+    },
+    {
+      "key": "load",
+      "name": "Load step",
+      "workload": "cpu_burn",
+      "args": ["1"],
+      "priority": 4,
+      "resources": {
+        "cpu_slots": 1,
+        "ram_mb": 256,
+        "device": "CPU"
+      },
+      "depends_on": ["transform"]
+    }
+  ]
+}

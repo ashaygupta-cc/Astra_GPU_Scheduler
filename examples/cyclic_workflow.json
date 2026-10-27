@@ -1,0 +1,26 @@
+{
+  "name": "cyclic_pipeline",
+  "jobs": [
+    {
+      "key": "task_a",
+      "name": "Task Alpha",
+      "workload": "cpu_burn",
+      "args": ["100000"],
+      "depends_on": ["task_c"]
+    },
+    {
+      "key": "task_b",
+      "name": "Task Beta",
+      "workload": "cpu_burn",
+      "args": ["100000"],
+      "depends_on": ["task_a"]
+    },
+    {
+      "key": "task_c",
+      "name": "Task Gamma",
+      "workload": "cpu_burn",
+      "args": ["100000"],
+      "depends_on": ["task_b"]
+    }
+  ]
+}

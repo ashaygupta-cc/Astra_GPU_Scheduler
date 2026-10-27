@@ -3,6 +3,7 @@
 #include "astra/job.hpp"
 #include "astra/worker_info.hpp"
 #include "astra/event.hpp"
+#include "astra/workflow.hpp"
 
 #include <string>
 #include <vector>
@@ -54,6 +55,13 @@ public:
     // Event audit logs
     bool record_event(const Event& event, std::uint64_t* out_event_id = nullptr, std::string* error_out = nullptr);
     std::vector<Event> get_events(const std::string& job_id = "", size_t limit = 100, std::string* error_out = nullptr);
+
+    // Workflow persistence
+    bool save_workflow(const WorkflowRecord& wf, std::string* error_out = nullptr);
+    bool update_workflow_state(const std::string& wf_id, const std::string& state, std::string* error_out = nullptr);
+    std::optional<WorkflowRecord> get_workflow(const std::string& wf_id, std::string* error_out = nullptr);
+    std::vector<WorkflowRecord> get_all_workflows(std::string* error_out = nullptr);
+    std::vector<Job> get_jobs_by_workflow(const std::string& wf_id, std::string* error_out = nullptr);
 
 private:
     struct Impl;

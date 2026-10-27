@@ -403,6 +403,53 @@ Every single command executed on the system is cataloged below, explaining the O
   All Phase 5 tests passed successfully!
   ```
 
+### Step 16: Phase 6 Implementation — DAG Workflows, Cycle Detection, & Dependency Orchestration
+- **Commands Executed:**
+  ```bash
+  wsl -d Ubuntu-24.04 -- cmake -B build -G Ninja
+  wsl -d Ubuntu-24.04 -- cmake --build build
+  wsl -d Ubuntu-24.04 -- ctest --test-dir build --output-on-failure
+  wsl -d Ubuntu-24.04 -- ./build/test_phase6
+  wsl -d Ubuntu-24.04 -- ./build/astra workflow submit examples/workflow.json
+  wsl -d Ubuntu-24.04 -- ./build/astra workflow list
+  wsl -d Ubuntu-24.04 -- ./build/astra workflow status <wf_id>
+  wsl -d Ubuntu-24.04 -- ./build/astra workflow submit examples/cyclic_workflow.json
+  ```
+- **Permission Level:** Standard User (`ashay` in WSL2 Ubuntu 24.04)
+- **OS Mechanics & Academic Purpose:**
+  1. Directed Acyclic Graph (DAG) Modeling & Topological Sort:
+     - Implements Kahn's algorithm using in-degree tracking across job prerequisites to compute a valid sequential execution order ($O(V + E)$ time complexity).
+     - Resolves dependencies dynamically: root tasks without prerequisites enter `JobState::Queued` immediately, whereas dependent child tasks are initialized in `JobState::WaitingForDependencies`.
+  2. Explainable Cycle Detection via 3-Color DFS:
+     - Traverses dependency graph with 3-color states: White (unvisited), Gray (currently in recursion stack), and Black (completed).
+     - When encountering a back-edge pointing to a Gray node, reconstructs and formats the exact cycle chain (e.g., `task_a -> task_b -> task_c -> task_a`), immediately rejecting cyclic workflows before submission with exit code 1.
+  3. Dynamic Dependency Reconciler & Cascading Failure Propagation:
+     - On every scheduling tick, `Scheduler::reconcile_dependencies()` queries all `WaitingForDependencies` jobs.
+     - When all parent dependencies attain `JobState::Succeeded`, the downstream dependent transitions to `JobState::Queued` and emits `EventType::JOB_QUEUED`.
+     - **Cascading Failure Protection:** If any parent dependency enters `Failed`, `Cancelled`, or `Blocked`, downstream child tasks immediately transition to `JobState::Blocked` with explicit failure attribution (`Prerequisite dependency '<id>' failed`). Downstream tasks are never allocated CPU/GPU resources or dispatched to workers.
+  4. Diamond DAG Parallelism:
+     - Verified diamond graph execution: root step initiates, unblocking two parallel branch jobs that run concurrently across worker child processes, followed by an aggregation join task that activates only when both branches succeed.
+- **Actual Output:**
+  ```
+  Running ASTRA Phase 6 (DAG Workflows) Unit & Integration Tests...
+  [PASS] DAG JSON parsing, topological ordering, and job dependency translation
+  [PASS] DAG cycle detection with 3-color DFS path tracing and diagnostics
+  [PASS] End-to-end linear DAG execution and automatic prerequisite unblocking
+  [PASS] Diamond DAG multi-branch join coordination
+  [PASS] Downstream failure cascade and cascade-blocking propagation
+  All Phase 6 tests passed successfully!
+
+  Test project /mnt/c/Users/ASHAY_GUPTA/Desktop/OS GPU Scheduler/build
+  1/7 Test #1: Phase0Sanity .....................   Passed    0.01 sec
+  2/7 Test #2: Phase1DomainAndStorage ...........   Passed    0.20 sec
+  3/7 Test #3: Phase2CLI ........................   Passed    0.10 sec
+  4/7 Test #4: Phase3WorkersAndIPC ..............   Passed    2.04 sec
+  5/7 Test #5: Phase4SchedulerCore ..............   Passed    1.66 sec
+  6/7 Test #6: Phase5TUIAndTelemetry ............   Passed    0.11 sec
+  7/7 Test #7: Phase6DAGWorkflows ...............   Passed    7.37 sec
+  100% tests passed, 0 tests failed out of 7
+  ```
+
 ---
 
 ## 3. Summary of Files Created & Modified
@@ -422,8 +469,8 @@ Every single command executed on the system is cataloged below, explaining the O
 | `include/astra/worker_info.hpp` | WorkerInfo struct and WorkerState enum |
 | `include/astra/event.hpp` | Audit Event model and 17 EventType definitions |
 | `include/astra/config.hpp` | AstraConfig declaration and validation |
-| `include/astra/job_store.hpp` | SQLite storage engine header (PIMPL) |
-| `include/astra/command.hpp` | Strongly typed CLI Command definitions via `std::variant` |
+| `include/astra/job_store.hpp` | SQLite storage engine header (PIMPL) with workflow persistence |
+| `include/astra/command.hpp` | Strongly typed CLI Command definitions via `std::variant` (including WorkflowCommand) |
 | `include/astra/command_parser.hpp` | Tokenizer, path security check, and command parser header |
 | `include/astra/cli_handler.hpp` | CLI execution dispatcher and interactive REPL header |
 | `include/astra/ipc_channel.hpp` | Framed 32-byte header binary IPC socketpair wrapper and `UniqueFd` RAII |
@@ -434,19 +481,24 @@ Every single command executed on the system is cataloged below, explaining the O
 | `include/astra/scheduler.hpp` | Scheduler Core single-threaded event loop and dependency coordinator |
 | `include/astra/tui_snapshot.hpp` | System snapshot collector for real-time telemetry and state aggregation |
 | `include/astra/tui.hpp` | Full-screen ncurses terminal user interface dashboard and view switcher |
+| `include/astra/workflow.hpp` | DAG workflow domain models, Kahn's algorithm, and 3-color DFS cycle detector |
 | `src/main.cpp` | CLI entry point dispatching one-shot commands or launching REPL |
 | `src/resources/config.cpp` | Configuration loader and validator implementation |
-| `src/storage/job_store.cpp` | SQLite schema migrations, ACID CRUD, and audit logging |
+| `src/storage/job_store.cpp` | SQLite schema migrations, ACID CRUD, dependency queries, and workflow tracking |
 | `src/cli/command_parser.cpp` | Command parser, tokenizer, and path safety validation |
-| `src/cli/cli_handler.cpp` | Command execution logic, ASCII tables, and REPL loop |
+| `src/cli/cli_handler.cpp` | Command execution logic, workflow submission/status/listing, and REPL loop |
 | `src/ipc/ipc_channel.cpp` | Bidirectional `AF_UNIX` framed read/write implementation with timeout polling |
 | `src/worker/worker.cpp` | Worker process loop, workload fork/execvp, output redirection, and cancellation |
 | `src/worker/worker_manager.cpp` | Child worker pool supervisor, non-blocking polling, reaping, and auto-restart |
 | `src/scheduler/scheduling_policy.cpp` | Implementation of FCFS, Priority, Priority Aging, and SJF algorithms |
 | `src/resources/resource_manager.cpp` | Resource tracking, `/proc/meminfo` telemetry parser, and exact-once release |
-| `src/scheduler/scheduler.cpp` | Scheduler event loop, decision events, and worker dispatching |
+| `src/scheduler/scheduler.cpp` | Scheduler event loop, decision events, and cascading dependency unblocking |
 | `src/tui/tui_snapshot.cpp` | Real-time metric aggregation across storage, resources, and workers |
 | `src/tui/tui.cpp` | Full-screen ncurses dashboard rendering, color pairs, progress bars, and input handling |
+| `src/workflow/workflow.cpp` | DagEngine JSON parser, Kahn's topological sort, DFS cycle detector, and job factory |
+| `examples/workflow.json` | Linear DAG workflow pipeline definition (extract -> transform -> load) |
+| `examples/cyclic_workflow.json` | Cyclic DAG example for testing error detection (A -> B -> C -> A) |
+| `examples/diamond_workflow.json` | Diamond DAG workflow with concurrent parallel branches and join step |
 | `workloads/cpu_burn.cpp` | CPU workload test program (compute loops) |
 | `workloads/deliberate_failure.cpp` | Controlled non-zero exit code and crash test program |
 | `workloads/parallel_sum.cpp` | Multithreaded parallel reduction workload test program |
@@ -456,4 +508,5 @@ Every single command executed on the system is cataloged below, explaining the O
 | `tests/integration/test_worker_lifecycle.cpp` | Phase 3 integration suite testing real child processes, cancellation, reaping, and crashes |
 | `tests/unit/test_phase4.cpp` | Phase 4 test suite verifying policy ordering, starvation prevention, admission, and scheduler step |
 | `tests/unit/test_phase5.cpp` | Phase 5 unit test suite verifying snapshot aggregation, telemetry, and headless TUI rendering |
+| `tests/unit/test_phase6.cpp` | Phase 6 unit test suite verifying DAG validation, Kahn's sort, diamond join, and failure cascades |
 | `README.md` & `LICENSE` | Project documentation and MIT license |

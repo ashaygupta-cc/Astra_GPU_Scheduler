@@ -60,7 +60,12 @@ struct ConfigCommand {
 };
 
 struct WorkflowCommand {
-    std::string file_path;
+    enum class Action {
+        Submit,
+        Status,
+        List
+    } action = Action::Submit;
+    std::string target;
 };
 
 struct EventsCommand {

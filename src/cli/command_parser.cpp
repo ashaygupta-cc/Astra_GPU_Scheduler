@@ -265,13 +265,25 @@ Command CommandParser::parse(const std::vector<std::string>& raw_tokens, const s
     }
 
     if (subcmd == "workflow") {
-        if (start_idx + 1 >= raw_tokens.size() || raw_tokens[start_idx + 1] != "submit") {
-            return InvalidCommand{"Usage: astra workflow submit <file.json>"};
+        if (start_idx + 1 >= raw_tokens.size()) {
+            return InvalidCommand{"Usage: astra workflow <submit <file.json>|status <workflow_id>|list>"};
         }
-        if (start_idx + 2 >= raw_tokens.size()) {
-            return InvalidCommand{"Missing workflow JSON file. Usage: astra workflow submit <file.json>"};
+        const std::string& act = raw_tokens[start_idx + 1];
+        if (act == "submit") {
+            if (start_idx + 2 >= raw_tokens.size()) {
+                return InvalidCommand{"Missing workflow JSON file. Usage: astra workflow submit <file.json>"};
+            }
+            return WorkflowCommand{WorkflowCommand::Action::Submit, raw_tokens[start_idx + 2]};
+        } else if (act == "status") {
+            if (start_idx + 2 >= raw_tokens.size()) {
+                return InvalidCommand{"Missing workflow ID. Usage: astra workflow status <workflow_id>"};
+            }
+            return WorkflowCommand{WorkflowCommand::Action::Status, raw_tokens[start_idx + 2]};
+        } else if (act == "list") {
+            return WorkflowCommand{WorkflowCommand::Action::List, ""};
+        } else {
+            return InvalidCommand{"Unknown workflow action: " + act + " (expected 'submit', 'status', or 'list')"};
         }
-        return WorkflowCommand{raw_tokens[start_idx + 2]};
     }
 
     if (subcmd == "events") {

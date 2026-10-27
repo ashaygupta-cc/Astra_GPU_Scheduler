@@ -5,6 +5,7 @@
 #include "astra/tui_snapshot.hpp"
 #include "astra/resource_manager.hpp"
 #include "astra/worker_manager.hpp"
+#include "astra/workflow.hpp"
 
 #include <iomanip>
 #include <sstream>
@@ -413,6 +414,156 @@ int CliHandler::execute(const Command& cmd, std::ostream& out, std::ostream& err
                     << std::setw(10) << (ev.worker_id >= 0 ? std::to_string(ev.worker_id) : "-")
                     << ev.payload_json
                     << "\n";
+            }
+            return 0;
+        }
+
+        else if constexpr (std::is_same_v<T, WorkflowCommand>) {
+            if (c.action == WorkflowCommand::Action::Submit) {
+                std::string parse_err;
+                auto wf_def = DagEngine::parse_json_file(c.target, &parse_err);
+                if (!wf_def) {
+                    err << "[ERROR] Failed to parse workflow: " << parse_err << "\n";
+                    return 1;
+                }
+
+                std::vector<std::string> topo_order;
+                std::string dag_err;
+                if (!DagEngine::validate_dag(*wf_def, topo_order, &dag_err)) {
+                    err << "[ERROR] Workflow validation failed: " << dag_err << "\n";
+                    return 1;
+                }
+
+                std::unordered_map<std::string, std::string> key_to_job_id;
+                std::string inst_err;
+                auto jobs = DagEngine::instantiate_jobs(*wf_def, config_.workload_root, key_to_job_id, &inst_err);
+                if (jobs.empty() && !wf_def->tasks.empty()) {
+                    err << "[ERROR] Failed to instantiate workflow jobs: " << inst_err << "\n";
+                    return 1;
+                }
+
+                WorkflowRecord rec;
+                rec.id = wf_def->id;
+                rec.name = wf_def->name;
+                rec.state = "Running";
+                rec.created_time = std::chrono::system_clock::now();
+                store_.save_workflow(rec);
+
+                for (const auto& j : jobs) {
+                    store_.save_job(j);
+                    Event ev_sub{0, j.submitted_time, EventType::JOB_SUBMITTED, j.id, -1, 
+                                 "{\"workflow_id\": \"" + wf_def->id + "\", \"task_name\": \"" + j.name + "\"}"};
+                    store_.record_event(ev_sub);
+
+                    if (j.state == JobState::Queued) {
+                        Event ev_q{0, j.enqueued_time, EventType::JOB_QUEUED, j.id, -1, "{}"};
+                        store_.record_event(ev_q);
+                    }
+                }
+
+                out << "Workflow submitted successfully!\n"
+                    << "Workflow ID:   " << wf_def->id << "\n"
+                    << "Pipeline Name: " << wf_def->name << "\n"
+                    << "Total Tasks:   " << jobs.size() << "\n"
+                    << "Topological:   ";
+                for (size_t i = 0; i < topo_order.size(); ++i) {
+                    out << topo_order[i] << (i + 1 < topo_order.size() ? " -> " : "\n");
+                }
+                out << "Jobs:\n";
+                for (const auto& j : jobs) {
+                    out << "  - " << std::left << std::setw(15) << j.name
+                        << " -> " << std::setw(25) << j.id
+                        << " (" << to_string(j.state);
+                    if (!j.dependencies.empty()) {
+                        out << ", Depends: [";
+                        for (size_t d = 0; d < j.dependencies.size(); ++d) {
+                            out << j.dependencies[d] << (d + 1 < j.dependencies.size() ? ", " : "");
+                        }
+                        out << "]";
+                    }
+                    out << ")\n";
+                }
+                return 0;
+            } else if (c.action == WorkflowCommand::Action::Status) {
+                auto wf_opt = store_.get_workflow(c.target);
+                if (!wf_opt) {
+                    err << "[ERROR] Workflow not found: " << c.target << "\n";
+                    return 1;
+                }
+
+                auto wf_jobs = store_.get_jobs_by_workflow(c.target);
+                size_t succeeded_cnt = 0;
+                size_t failed_cnt = 0;
+                size_t running_cnt = 0;
+                for (const auto& j : wf_jobs) {
+                    if (j.state == JobState::Succeeded) succeeded_cnt++;
+                    else if (j.state == JobState::Failed || j.state == JobState::Cancelled || j.state == JobState::Blocked) failed_cnt++;
+                    else if (j.state == JobState::Running) running_cnt++;
+                }
+
+                std::string overall = wf_opt->state;
+                if (succeeded_cnt == wf_jobs.size() && !wf_jobs.empty()) {
+                    overall = "Succeeded";
+                    store_.update_workflow_state(c.target, "Succeeded");
+                } else if (failed_cnt > 0 && running_cnt == 0 && (succeeded_cnt + failed_cnt == wf_jobs.size())) {
+                    overall = "Failed";
+                    store_.update_workflow_state(c.target, "Failed");
+                } else if (running_cnt > 0) {
+                    overall = "Running";
+                }
+
+                out << "Workflow Status: " << wf_opt->id << " (" << wf_opt->name << ")\n"
+                    << "Overall State:   " << overall 
+                    << " (" << succeeded_cnt << "/" << wf_jobs.size() << " completed, "
+                    << failed_cnt << " failed/blocked)\n";
+                out << std::string(80, '-') << "\n";
+                out << std::left
+                    << std::setw(20) << "TASK"
+                    << std::setw(26) << "JOB ID"
+                    << std::setw(18) << "STATE"
+                    << std::setw(10) << "ELAPSED"
+                    << "EXIT\n";
+                out << std::string(80, '-') << "\n";
+
+                auto now = std::chrono::system_clock::now();
+                for (const auto& j : wf_jobs) {
+                    std::string elapsed = "-";
+                    if (j.started_time != std::chrono::system_clock::time_point{}) {
+                        auto end_tp = (j.completed_time != std::chrono::system_clock::time_point{}) ? j.completed_time : now;
+                        auto dur = std::chrono::duration_cast<std::chrono::milliseconds>(end_tp - j.started_time);
+                        elapsed = format_duration(dur);
+                    }
+                    std::string exit_str = is_terminal_state(j.state) ? std::to_string(j.exit_code) : "-";
+
+                    out << std::left
+                        << std::setw(20) << (j.name.size() > 18 ? j.name.substr(0, 17) + "…" : j.name)
+                        << std::setw(26) << j.id
+                        << std::setw(18) << to_string(j.state)
+                        << std::setw(10) << elapsed
+                        << exit_str << "\n";
+                }
+                return 0;
+            } else if (c.action == WorkflowCommand::Action::List) {
+                auto wfs = store_.get_all_workflows();
+                if (wfs.empty()) {
+                    out << "No workflows found in database.\n";
+                    return 0;
+                }
+
+                out << std::left
+                    << std::setw(24) << "WORKFLOW ID"
+                    << std::setw(24) << "NAME"
+                    << std::setw(14) << "STATE"
+                    << "CREATED\n";
+                out << std::string(80, '-') << "\n";
+                for (const auto& wf : wfs) {
+                    out << std::left
+                        << std::setw(24) << wf.id
+                        << std::setw(24) << (wf.name.size() > 22 ? wf.name.substr(0, 21) + "…" : wf.name)
+                        << std::setw(14) << wf.state
+                        << format_time_point(wf.created_time) << "\n";
+                }
+                return 0;
             }
             return 0;
         }

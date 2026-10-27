@@ -98,18 +98,26 @@ void Scheduler::setup_callbacks() {
 void Scheduler::reconcile_dependencies() {
     auto waiting_jobs = store_.get_jobs_by_state(JobState::WaitingForDependencies);
     for (auto& job : waiting_jobs) {
+        auto deps = job.dependencies.empty() ? store_.get_dependencies(job.id) : job.dependencies;
+        if (deps.empty()) {
+            store_.update_job_state(job.id, JobState::Queued);
+            Event ev_q{0, std::chrono::system_clock::now(), EventType::JOB_QUEUED, job.id, -1, "{}"};
+            store_.record_event(ev_q);
+            continue;
+        }
+
         bool all_satisfied = true;
         bool dependency_failed = false;
         std::string failed_dep_id;
 
-        for (const auto& dep_id : job.dependencies) {
+        for (const auto& dep_id : deps) {
             auto dep_opt = store_.get_job(dep_id);
             if (!dep_opt) {
                 dependency_failed = true;
                 failed_dep_id = dep_id;
                 break;
             }
-            if (dep_opt->state == JobState::Failed || dep_opt->state == JobState::Cancelled) {
+            if (dep_opt->state == JobState::Failed || dep_opt->state == JobState::Cancelled || dep_opt->state == JobState::Blocked) {
                 dependency_failed = true;
                 failed_dep_id = dep_id;
                 break;

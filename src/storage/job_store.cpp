@@ -526,6 +526,15 @@ std::vector<Job> JobStore::get_all_jobs(std::string* error_out) {
         jobs.push_back(parse_job_row(stmt.get()));
     }
 
+    for (auto& j : jobs) {
+        ScopedStmt dep_stmt;
+        sqlite3_prepare_v2(impl_->db, "SELECT dependency_id FROM job_dependencies WHERE job_id = ?1;", -1, dep_stmt.receive(), nullptr);
+        sqlite3_bind_text(dep_stmt.get(), 1, j.id.c_str(), -1, SQLITE_TRANSIENT);
+        while (sqlite3_step(dep_stmt.get()) == SQLITE_ROW) {
+            j.dependencies.emplace_back(reinterpret_cast<const char*>(sqlite3_column_text(dep_stmt.get(), 0)));
+        }
+    }
+
     return jobs;
 }
 
@@ -556,6 +565,15 @@ std::vector<Job> JobStore::get_jobs_by_state(JobState state, std::string* error_
 
     while (sqlite3_step(stmt.get()) == SQLITE_ROW) {
         jobs.push_back(parse_job_row(stmt.get()));
+    }
+
+    for (auto& j : jobs) {
+        ScopedStmt dep_stmt;
+        sqlite3_prepare_v2(impl_->db, "SELECT dependency_id FROM job_dependencies WHERE job_id = ?1;", -1, dep_stmt.receive(), nullptr);
+        sqlite3_bind_text(dep_stmt.get(), 1, j.id.c_str(), -1, SQLITE_TRANSIENT);
+        while (sqlite3_step(dep_stmt.get()) == SQLITE_ROW) {
+            j.dependencies.emplace_back(reinterpret_cast<const char*>(sqlite3_column_text(dep_stmt.get(), 0)));
+        }
     }
 
     return jobs;
@@ -900,6 +918,157 @@ std::vector<Event> JobStore::get_events(const std::string& job_id, size_t limit,
     }
 
     return events;
+}
+
+bool JobStore::save_workflow(const WorkflowRecord& wf, std::string* error_out) {
+    std::lock_guard<std::mutex> lock(impl_->mtx);
+    if (!impl_->db) {
+        if (error_out) *error_out = "Database is not open";
+        return false;
+    }
+
+    const char* sql = "INSERT INTO workflows (id, name, state, created_time_ms) VALUES (?1, ?2, ?3, ?4) "
+                      "ON CONFLICT(id) DO UPDATE SET name = excluded.name, state = excluded.state;";
+    ScopedStmt stmt;
+    int rc = sqlite3_prepare_v2(impl_->db, sql, -1, stmt.receive(), nullptr);
+    if (rc != SQLITE_OK) {
+        if (error_out) *error_out = sqlite3_errmsg(impl_->db);
+        return false;
+    }
+
+    sqlite3_bind_text(stmt.get(), 1, wf.id.c_str(), -1, SQLITE_TRANSIENT);
+    sqlite3_bind_text(stmt.get(), 2, wf.name.c_str(), -1, SQLITE_TRANSIENT);
+    sqlite3_bind_text(stmt.get(), 3, wf.state.c_str(), -1, SQLITE_TRANSIENT);
+    sqlite3_bind_int64(stmt.get(), 4, to_ms(wf.created_time));
+
+    rc = sqlite3_step(stmt.get());
+    if (rc != SQLITE_DONE) {
+        if (error_out) *error_out = sqlite3_errmsg(impl_->db);
+        return false;
+    }
+    return true;
+}
+
+bool JobStore::update_workflow_state(const std::string& wf_id, const std::string& state, std::string* error_out) {
+    std::lock_guard<std::mutex> lock(impl_->mtx);
+    if (!impl_->db) {
+        if (error_out) *error_out = "Database is not open";
+        return false;
+    }
+
+    const char* sql = "UPDATE workflows SET state = ?1 WHERE id = ?2;";
+    ScopedStmt stmt;
+    int rc = sqlite3_prepare_v2(impl_->db, sql, -1, stmt.receive(), nullptr);
+    if (rc != SQLITE_OK) {
+        if (error_out) *error_out = sqlite3_errmsg(impl_->db);
+        return false;
+    }
+
+    sqlite3_bind_text(stmt.get(), 1, state.c_str(), -1, SQLITE_TRANSIENT);
+    sqlite3_bind_text(stmt.get(), 2, wf_id.c_str(), -1, SQLITE_TRANSIENT);
+
+    rc = sqlite3_step(stmt.get());
+    if (rc != SQLITE_DONE) {
+        if (error_out) *error_out = sqlite3_errmsg(impl_->db);
+        return false;
+    }
+    return true;
+}
+
+std::optional<WorkflowRecord> JobStore::get_workflow(const std::string& wf_id, std::string* error_out) {
+    std::lock_guard<std::mutex> lock(impl_->mtx);
+    if (!impl_->db) {
+        if (error_out) *error_out = "Database is not open";
+        return std::nullopt;
+    }
+
+    const char* sql = "SELECT id, name, state, created_time_ms FROM workflows WHERE id = ?1;";
+    ScopedStmt stmt;
+    int rc = sqlite3_prepare_v2(impl_->db, sql, -1, stmt.receive(), nullptr);
+    if (rc != SQLITE_OK) {
+        if (error_out) *error_out = sqlite3_errmsg(impl_->db);
+        return std::nullopt;
+    }
+
+    sqlite3_bind_text(stmt.get(), 1, wf_id.c_str(), -1, SQLITE_TRANSIENT);
+    if (sqlite3_step(stmt.get()) == SQLITE_ROW) {
+        WorkflowRecord wf;
+        wf.id = reinterpret_cast<const char*>(sqlite3_column_text(stmt.get(), 0));
+        wf.name = reinterpret_cast<const char*>(sqlite3_column_text(stmt.get(), 1));
+        wf.state = reinterpret_cast<const char*>(sqlite3_column_text(stmt.get(), 2));
+        wf.created_time = from_ms(sqlite3_column_int64(stmt.get(), 3));
+        return wf;
+    }
+
+    return std::nullopt;
+}
+
+std::vector<WorkflowRecord> JobStore::get_all_workflows(std::string* error_out) {
+    std::lock_guard<std::mutex> lock(impl_->mtx);
+    std::vector<WorkflowRecord> list;
+    if (!impl_->db) {
+        if (error_out) *error_out = "Database is not open";
+        return list;
+    }
+
+    const char* sql = "SELECT id, name, state, created_time_ms FROM workflows ORDER BY created_time_ms DESC;";
+    ScopedStmt stmt;
+    int rc = sqlite3_prepare_v2(impl_->db, sql, -1, stmt.receive(), nullptr);
+    if (rc != SQLITE_OK) {
+        if (error_out) *error_out = sqlite3_errmsg(impl_->db);
+        return list;
+    }
+
+    while (sqlite3_step(stmt.get()) == SQLITE_ROW) {
+        WorkflowRecord wf;
+        wf.id = reinterpret_cast<const char*>(sqlite3_column_text(stmt.get(), 0));
+        wf.name = reinterpret_cast<const char*>(sqlite3_column_text(stmt.get(), 1));
+        wf.state = reinterpret_cast<const char*>(sqlite3_column_text(stmt.get(), 2));
+        wf.created_time = from_ms(sqlite3_column_int64(stmt.get(), 3));
+        list.push_back(std::move(wf));
+    }
+
+    return list;
+}
+
+std::vector<Job> JobStore::get_jobs_by_workflow(const std::string& wf_id, std::string* error_out) {
+    std::lock_guard<std::mutex> lock(impl_->mtx);
+    std::vector<Job> jobs;
+    if (!impl_->db) {
+        if (error_out) *error_out = "Database is not open";
+        return jobs;
+    }
+
+    const char* sql = 
+        "SELECT id, name, executable_path, argv_json, priority, device, cpu_slots, ram_mb, gpu_memory_mb,"
+        "       state, max_retries, retry_count, checkpointable, assigned_worker_id, worker_pid,"
+        "       exit_code, failure_reason, workflow_id, submitted_time_ms, enqueued_time_ms,"
+        "       started_time_ms, completed_time_ms, deadline_ms "
+        "FROM jobs WHERE workflow_id = ?1 ORDER BY submitted_time_ms ASC;";
+
+    ScopedStmt stmt;
+    int rc = sqlite3_prepare_v2(impl_->db, sql, -1, stmt.receive(), nullptr);
+    if (rc != SQLITE_OK) {
+        if (error_out) *error_out = sqlite3_errmsg(impl_->db);
+        return jobs;
+    }
+
+    sqlite3_bind_text(stmt.get(), 1, wf_id.c_str(), -1, SQLITE_TRANSIENT);
+
+    while (sqlite3_step(stmt.get()) == SQLITE_ROW) {
+        jobs.push_back(parse_job_row(stmt.get()));
+    }
+
+    for (auto& j : jobs) {
+        ScopedStmt dep_stmt;
+        sqlite3_prepare_v2(impl_->db, "SELECT dependency_id FROM job_dependencies WHERE job_id = ?1;", -1, dep_stmt.receive(), nullptr);
+        sqlite3_bind_text(dep_stmt.get(), 1, j.id.c_str(), -1, SQLITE_TRANSIENT);
+        while (sqlite3_step(dep_stmt.get()) == SQLITE_ROW) {
+            j.dependencies.emplace_back(reinterpret_cast<const char*>(sqlite3_column_text(dep_stmt.get(), 0)));
+        }
+    }
+
+    return jobs;
 }
 
 } // namespace astra
