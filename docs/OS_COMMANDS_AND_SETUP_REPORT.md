@@ -450,6 +450,50 @@ Every single command executed on the system is cataloged below, explaining the O
   100% tests passed, 0 tests failed out of 7
   ```
 
+### Step 17: Phase 7 Implementation — Reliability & Deadlock Laboratory
+- **Commands Executed:**
+  ```bash
+  wsl -d Ubuntu-24.04 -- cmake -B build -G Ninja
+  wsl -d Ubuntu-24.04 -- cmake --build build
+  wsl -d Ubuntu-24.04 -- ctest --test-dir build --output-on-failure
+  wsl -d Ubuntu-24.04 -- ./build/test_phase7
+  wsl -d Ubuntu-24.04 -- ./build/astra deadlock demo
+  ```
+- **Permission Level:** Standard User (`ashay` in WSL2 Ubuntu 24.04)
+- **OS Mechanics & Academic Purpose:**
+  1. Classical Banker's Safety Algorithm:
+     - Implements Dijkstra's multi-resource safety verification tracking $m$-dimensional vector claims: $\text{Available}$, $\text{Allocation}[i]$, $\text{Max}[i]$, and $\text{Need}[i] = \text{Max}[i] - \text{Allocation}[i]$.
+     - Employs a provisional execution vector $\text{Work} = \text{Available}$ and simulates sequential process completion. If no process satisfies $\text{Need}[i] \le \text{Work}$, the system mathematically proves the existence of an **UNSAFE DEADLOCK STATE**.
+  2. Wait-For Graph (WFG) Cycle Detection:
+     - Builds directed dependency graph representing hold-and-wait conditions ($J_A \rightarrow J_B$ indicates $J_A$ holds resources requested by $J_B$).
+     - Uses 3-color DFS traversal to detect and output circular hold-and-wait cycles ($J_A \rightarrow J_B \rightarrow J_A$).
+  3. Explainable Victim Selection & Recovery:
+     - Implements a cost-based selection algorithm to choose the minimal-damage victim for preemption:
+       - Primary key: base priority (lowest priority preempted first).
+       - Secondary key: sunk execution duration (least elapsed CPU time chosen to minimize wasted computational cycles).
+       - Formulates explicit academic rationale explaining the choice to the operator.
+     - Simulates process termination and resource reclamation, transitioning the system from an unsafe deadlock state back to a provably safe execution sequence.
+- **Actual Output:**
+  ```
+  Running ASTRA Phase 7 (Reliability & Deadlock Lab) Tests...
+  [PASS] Banker's algorithm safe sequence computation and deadlock proof
+  [PASS] Wait-For Graph (WFG) DFS cycle detection
+  [PASS] Explainable victim selection by priority and minimal sunk work
+  [PASS] Educational deadlock lab simulation and report generation
+  All Phase 7 tests passed successfully!
+
+  Test project /mnt/c/Users/ASHAY_GUPTA/Desktop/OS GPU Scheduler/build
+  1/8 Test #1: Phase0Sanity ......................   Passed    0.01 sec
+  2/8 Test #2: Phase1DomainAndStorage ............   Passed    0.15 sec
+  3/8 Test #3: Phase2CLI .........................   Passed    0.11 sec
+  4/8 Test #4: Phase3WorkersAndIPC ...............   Passed    2.03 sec
+  5/8 Test #5: Phase4SchedulerCore ...............   Passed    1.66 sec
+  6/8 Test #6: Phase5TUIAndTelemetry .............   Passed    0.10 sec
+  7/8 Test #7: Phase6DAGWorkflows ................   Passed    7.31 sec
+  8/8 Test #8: Phase7ReliabilityAndDeadlockLab ...   Passed    0.01 sec
+  100% tests passed, 0 tests failed out of 8
+  ```
+
 ---
 
 ## 3. Summary of Files Created & Modified
@@ -482,6 +526,7 @@ Every single command executed on the system is cataloged below, explaining the O
 | `include/astra/tui_snapshot.hpp` | System snapshot collector for real-time telemetry and state aggregation |
 | `include/astra/tui.hpp` | Full-screen ncurses terminal user interface dashboard and view switcher |
 | `include/astra/workflow.hpp` | DAG workflow domain models, Kahn's algorithm, and 3-color DFS cycle detector |
+| `include/astra/deadlock_detector.hpp` | Classical Banker's Algorithm, Wait-For Graph (WFG), and explainable victim preemption |
 | `src/main.cpp` | CLI entry point dispatching one-shot commands or launching REPL |
 | `src/resources/config.cpp` | Configuration loader and validator implementation |
 | `src/storage/job_store.cpp` | SQLite schema migrations, ACID CRUD, dependency queries, and workflow tracking |
@@ -496,6 +541,7 @@ Every single command executed on the system is cataloged below, explaining the O
 | `src/tui/tui_snapshot.cpp` | Real-time metric aggregation across storage, resources, and workers |
 | `src/tui/tui.cpp` | Full-screen ncurses dashboard rendering, color pairs, progress bars, and input handling |
 | `src/workflow/workflow.cpp` | DagEngine JSON parser, Kahn's topological sort, DFS cycle detector, and job factory |
+| `src/deadlock/deadlock_detector.cpp` | Banker's safety loop, WFG cycle finder, victim cost ranking, and interactive lab demo |
 | `examples/workflow.json` | Linear DAG workflow pipeline definition (extract -> transform -> load) |
 | `examples/cyclic_workflow.json` | Cyclic DAG example for testing error detection (A -> B -> C -> A) |
 | `examples/diamond_workflow.json` | Diamond DAG workflow with concurrent parallel branches and join step |
@@ -509,4 +555,5 @@ Every single command executed on the system is cataloged below, explaining the O
 | `tests/unit/test_phase4.cpp` | Phase 4 test suite verifying policy ordering, starvation prevention, admission, and scheduler step |
 | `tests/unit/test_phase5.cpp` | Phase 5 unit test suite verifying snapshot aggregation, telemetry, and headless TUI rendering |
 | `tests/unit/test_phase6.cpp` | Phase 6 unit test suite verifying DAG validation, Kahn's sort, diamond join, and failure cascades |
+| `tests/unit/test_phase7.cpp` | Phase 7 unit test suite verifying Banker's safety, WFG cycle detection, and victim selection |
 | `README.md` & `LICENSE` | Project documentation and MIT license |

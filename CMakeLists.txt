@@ -83,6 +83,7 @@ add_library(astra_core STATIC
     src/tui/tui_snapshot.cpp
     src/tui/tui.cpp
     src/workflow/workflow.cpp
+    src/deadlock/deadlock_detector.cpp
 )
 target_include_directories(astra_core PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/include)
 target_link_libraries(astra_core PUBLIC ${ASTRA_COMMON_LIBS})
@@ -158,4 +159,12 @@ target_link_libraries(test_phase6 PRIVATE astra_core ${ASTRA_COMMON_LIBS})
 add_dependencies(test_phase6 cpu_burn deliberate_failure parallel_sum)
 add_test(NAME Phase6DAGWorkflows COMMAND test_phase6)
 set_tests_properties(Phase6DAGWorkflows PROPERTIES WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}")
+
+add_executable(test_phase7
+    tests/unit/test_phase7.cpp
+)
+target_link_libraries(test_phase7 PRIVATE astra_core ${ASTRA_COMMON_LIBS})
+add_test(NAME Phase7ReliabilityAndDeadlockLab COMMAND test_phase7)
+set_tests_properties(Phase7ReliabilityAndDeadlockLab PROPERTIES WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}")
+
 

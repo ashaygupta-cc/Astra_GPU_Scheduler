@@ -6,6 +6,7 @@
 #include "astra/resource_manager.hpp"
 #include "astra/worker_manager.hpp"
 #include "astra/workflow.hpp"
+#include "astra/deadlock_detector.hpp"
 
 #include <iomanip>
 #include <sstream>
@@ -583,6 +584,16 @@ int CliHandler::execute(const Command& cmd, std::ostream& out, std::ostream& err
                 },
                 nullptr
             );
+            return 0;
+        }
+
+        else if constexpr (std::is_same_v<T, DeadlockCommand>) {
+            out << DeadlockDetector::run_deadlock_simulation_demo();
+            return 0;
+        }
+
+        else if constexpr (std::is_same_v<T, DemoCommand>) {
+            out << DeadlockDetector::run_deadlock_simulation_demo();
             return 0;
         }
 
