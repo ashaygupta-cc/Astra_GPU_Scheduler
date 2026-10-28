@@ -1,0 +1,303 @@
+\documentclass[10pt,a4paper]{article}
+
+\usepackage[margin=0.52in,top=0.48in,bottom=0.48in]{geometry}
+\usepackage[utf8]{inputenc}
+\usepackage[T1]{fontenc}
+\usepackage{lmodern}
+\usepackage{microtype}
+\usepackage{xcolor}
+\usepackage{tabularx}
+\usepackage{booktabs}
+\usepackage{enumitem}
+\usepackage{titlesec}
+\usepackage{fancyhdr}
+\usepackage{float}
+\usepackage{listings}
+\usepackage[most]{tcolorbox}
+\usepackage[colorlinks=true,linkcolor=navyblue,urlcolor=oceanblue,citecolor=navyblue]{hyperref}
+
+% Safe code command
+\DeclareRobustCommand{\code}[1]{\texttt{\detokenize{#1}}}
+
+% Color Palette
+\definecolor{navyblue}{RGB}{20, 45, 95}
+\definecolor{oceanblue}{RGB}{2, 132, 199}
+\definecolor{emeraldgreen}{RGB}{16, 149, 100}
+\definecolor{amberorange}{RGB}{217, 119, 6}
+\definecolor{crimsonred}{RGB}{185, 28, 28}
+\definecolor{codebg}{RGB}{247, 249, 252}
+\definecolor{darkslate}{RGB}{30, 41, 59}
+\definecolor{bordergray}{RGB}{210, 220, 235}
+
+% Listings setup
+\lstdefinestyle{cmdstyle}{
+    backgroundcolor=\color{codebg},
+    basicstyle=\ttfamily\small\color{darkslate},
+    breaklines=true,
+    frame=single,
+    rulecolor=\color{bordergray},
+    numbers=none,
+    tabsize=2,
+    showstringspaces=false,
+    aboveskip=3pt,
+    belowskip=3pt,
+    xleftmargin=5pt,
+    xrightmargin=5pt,
+    framexleftmargin=5pt,
+    framexrightmargin=5pt,
+    framextopmargin=3pt,
+    framexbottommargin=3pt
+}
+
+% Custom Alert Callout
+\newtcolorbox{infobox}[2][navyblue]{
+    arc=2mm,
+    colback=#1!5!white,
+    colframe=#1,
+    coltitle=white,
+    fonttitle=\bfseries\small,
+    title=#2,
+    boxrule=0.7pt,
+    left=5pt,
+    right=5pt,
+    top=3pt,
+    bottom=3pt
+}
+
+% Header and Footer
+\pagestyle{fancy}
+\fancyhf{}
+\fancyhead[L]{\textbf{\color{navyblue}ASTRA OS SCHEDULER} \textbar\ Live Terminal Runbook}
+\fancyhead[R]{\textcolor{gray}{\small Target: Ubuntu 24.04 LTS / WSL2}}
+\fancyfoot[C]{\textbf{\thepage\ of 3}}
+\renewcommand{\headrulewidth}{0.5pt}
+\renewcommand{\footrulewidth}{0.4pt}
+
+% Section formatting
+\titleformat{\section}{\large\bfseries\color{navyblue}}{}{0em}{}[\vspace{-4pt}\color{oceanblue}\rule{\textwidth}{1pt}\vspace{-2pt}]
+\titleformat{\subsection}{\normalsize\bfseries\color{navyblue}}{}{0em}{}
+\titlespacing*{\section}{0pt}{5pt}{3pt}
+\titlespacing*{\subsection}{0pt}{3pt}{1pt}
+
+\begin{document}
+
+% Header Title
+\begin{center}
+    {\Large \textbf{\color{navyblue}ASTRA OS SCHEDULER: TERMINAL EXECUTION RUNBOOK}}\\[2pt]
+    {\normalsize \textbf{\color{oceanblue}Step-by-Step Operator Guide for Live Verification \& GitHub Deployment}}\\[1pt]
+    {\footnotesize \color{darkslate} POSIX C++20 Architecture \quad\textbar\quad Real-Time Hardware Telemetry \quad\textbar\quad Release Build}
+\end{center}
+\vspace{-8pt}
+
+\begin{infobox}[emeraldgreen]{Pre-Flight Workspace Setup: Working Directory \& Environment}
+Open your Ubuntu / WSL2 terminal and navigate directly to the project root directory before executing commands:
+\begin{lstlisting}[style=cmdstyle]
+cd "/mnt/c/Users/ASHAY_GUPTA/Desktop/OS GPU Scheduler"
+pwd && ls -lh build/astra
+\end{lstlisting}
+\textit{Verification: Confirms current working directory is \code{OS GPU Scheduler} and the binary \code{./build/astra} is present.}
+\end{infobox}
+
+% ==============================================================================
+% PAGE 1: CORE VERIFICATION, HARDWARE TELEMETRY & CTEST
+% ==============================================================================
+\section{Stage 1: Hardware Telemetry, Build Verification \& Automated CTest Suite}
+
+\subsection{Step 1: Clean Compilation \& Build Verification (If Rebuilding Needed)}
+To ensure the binary reflects all latest optimizations and zero-synthetic telemetry fixes, compile with Ninja:
+\begin{lstlisting}[style=cmdstyle]
+cmake --build build -j$(nproc)
+\end{lstlisting}
+\begin{itemize}[leftmargin=*,itemsep=1pt,topsep=1pt]
+    \item \textbf{Expected Output:} \code{[14/14] Linking CXX executable astra} with exit code 0.
+\end{itemize}
+
+\subsection{Step 2: Live Hardware Probing \& Real System Diagnostics}
+Query host POSIX subsystem parameters and live GPU telemetry:
+\begin{lstlisting}[style=cmdstyle]
+./build/astra version
+\end{lstlisting}
+\begin{itemize}[leftmargin=*,itemsep=1pt,topsep=1pt]
+    \item \textbf{Dynamic Probing Mechanism:} Reads online cores via \code{sysconf(_SC_NPROCESSORS_ONLN)}, memory page size via \code{sysconf(_SC_PAGESIZE)}, host RAM from \code{/proc/meminfo}, and invokes \code{nvidia-smi} via \code{popen()} to query physical VRAM.
+    \item \textbf{Expected Output:} ASCII banner followed by C++20 compiler version, online CPU cores, 4096-byte page size, total host RAM, and your physical \textbf{NVIDIA GeForce RTX 3050 Laptop GPU (4096 MB VRAM)}.
+\end{itemize}
+
+\subsection{Step 3: Automated CTest 10-Phase Quality Gate (Full Test Suite)}
+Execute all 10 unit and integration phases through CMake's native test harness:
+\begin{lstlisting}[style=cmdstyle]
+ctest --test-dir build --output-on-failure
+\end{lstlisting}
+\begin{itemize}[leftmargin=*,itemsep=1pt,topsep=1pt]
+    \item \textbf{Phase Breakdown:}
+    \begin{itemize}[leftmargin=*,itemsep=0.5pt,topsep=0.5pt]
+        \item \code{Phase0Sanity} (0.05s): Core data structure integrity and environment validation.
+        \item \code{Phase1DomainAndStorage} (0.33s): SQLite persistence, Job FSM states, transactional journal.
+        \item \code{Phase2CLI} (0.23s): Command-line parser, argument dispatch, error handling.
+        \item \code{Phase3WorkersAndIPC} (2.05s): Worker daemon pooling, \code{AF_UNIX} domain sockets, binary protocol.
+        \item \code{Phase4SchedulerCore} (3.81s): FCFS, Strict Priority, SJF, and Priority Aging preemptive logic.
+        \item \code{Phase5TUIAndTelemetry} (1.17s): ANSI terminal rendering, gauge calculations, resource snapshots.
+        \item \code{Phase6DAGWorkflows} (10.16s): Kahn's topological sort, diamond DAG parallel execution, cycle rejection.
+        \item \code{Phase7ReliabilityAndDeadlockLab} (0.97s): Banker's algorithm, WFG cycles, explainable preemption.
+        \item \code{Phase8GPUAndCheckpointing} (1.18s): Non-volatile checkpoints, atomic state serialization, crash resume.
+        \item \code{Phase9ReplayBenchmarksAndRelease} (0.43s): Synthetic trace generator, Gantt timeline reconstruction.
+    \end{itemize}
+    \item \textbf{Expected Result:} \textbf{\textcolor{emeraldgreen}{100\% tests passed, 0 tests failed out of 10}} in $\sim 20.7$ seconds.
+\end{itemize}
+
+\newpage
+% ==============================================================================
+% PAGE 2: DEADLOCK LAB & FAULT-TOLERANT CHECKPOINTING
+% ==============================================================================
+\section{Stage 2: OS Deadlock Laboratory \& Fault-Tolerant Checkpointing}
+
+\subsection{Step 4: OS Deadlock Laboratory Simulation (Banker's Algorithm \& WFG Visualizer)}
+Execute the full 7-section academic deadlock detection, circular wait analysis, and preemption lab:
+\begin{lstlisting}[style=cmdstyle]
+./build/astra deadlock demo
+\end{lstlisting}
+\begin{itemize}[leftmargin=*,itemsep=1.5pt,topsep=1pt]
+    \item \textbf{Section [1] Process State \& Contention Matrix:} Shows \code{Job-Alpha} holding CPU Core 0 and waiting for GPU, while \code{Job-Beta} holds GPU and waits for CPU Core 0 across worker thread slots.
+    \item \textbf{Section [2] Shared Resource Inventory:} Evaluates contention load ($200\%$ over-subscribed) across CPU Core 0 and the detected \textbf{NVIDIA GeForce RTX 3050 Laptop GPU}.
+    \item \textbf{Section [3] Deadlock Risk Analysis:} Mathematical contention risk meter calculated as:
+    $$\text{Risk}(J) = 1.0 - \frac{\text{Available}_r}{\text{Need}_r} = 1.0 - \frac{0}{1} = 100.0\% \quad \text{[CRITICAL CONTENTION / 0.0\% SAFETY MARGIN]}$$
+    \item \textbf{Section [4] Wait-For Graph (WFG) Visualization:} Renders the circular ASCII hold-and-wait dependency. Triggers 3-color DFS recursion: \code{CIRCULAR WAIT DETECTED IN DFS: [Job-Beta] -> [Job-Alpha] -> [Job-Beta]}.
+    \item \textbf{Section [5] Dijkstra's Banker's Safety Matrix:} Proves Available $= [0, 0]$, Need $= [0, 1]$ and $[1, 0]$ with zero safe sequences.
+    \item \textbf{Section [6] Explainable Preemption \& Victim Selection:} Evaluates cost-loss optimization function:
+    $$\text{CostScore} = (P_{\text{base}} \cdot 0.70) + (\tau_{\text{sunk}} \cdot 0.30)$$
+    \begin{itemize}[leftmargin=*,itemsep=0.5pt,topsep=0.5pt]
+        \item \textbf{Job-Alpha (Pri 8, Sunk 1450ms):} $(8 \cdot 0.70) + (1450 \cdot 0.30) = 440.6$
+        \item \textbf{Job-Beta  (Pri 2, Sunk 120ms):}  $(2 \cdot 0.70) + (120 \cdot 0.30) = \mathbf{37.4} \implies \text{\textbf{Optimal Minimal-Loss Victim}}$
+    \end{itemize}
+    \item \textbf{Section [7] Post-Recovery Safety Verification:} Preempts Job-Beta, releases RTX 3050 GPU back to pool, restores safety score to $100.0\%$ SAFE with provably safe execution sequence $\langle \text{Job-Alpha} \rangle$.
+\end{itemize}
+
+\subsection{Step 5: Atomic Checkpoint \& Crash Recovery (Fault Tolerance)}
+Verify non-volatile checkpointing and exact resume mechanics after a process fault:
+\begin{lstlisting}[style=cmdstyle]
+# 1. Run compute workload configured to simulate fatal crash at step 50,000 (Target: 100,000)
+./build/workloads/checkpointable_sum --target 100000 --fail-at 50000 --checkpoint-file /tmp/test.ckpt
+
+# 2. Inspect serialized binary state checkpoint file
+ls -lh /tmp/test.ckpt
+
+# 3. Resume computation from preserved state checkpoint
+./build/workloads/checkpointable_sum --target 100000 --resume --checkpoint-file /tmp/test.ckpt
+\end{lstlisting}
+\begin{itemize}[leftmargin=*,itemsep=1.5pt,topsep=1pt]
+    \item \textbf{Operating System Principle:} Atomically records iteration counter and partial accumulator to disk before crash. On resume, starts directly at iteration 50,001 without recalculating the first 50,000 iterations.
+    \item \textbf{Expected Output:} Command 1 terminates with \code{SIMULATED CRASH triggered at step 50000}. Command 3 prints \code{RESUMING from checkpoint at step 50000} and completes final sum ($5,000,050,000$) in $<0.05\text{s}$.
+\end{itemize}
+
+\newpage
+% ==============================================================================
+% PAGE 3: POLICIES, DAGs, TUI, DEMO & GITHUB DEPLOYMENT
+% ==============================================================================
+\section{Stage 3: Policy Benchmarks, DAGs, TUI \& GitHub Deployment}
+
+\subsection{Step 6: Empirical Scheduling Policy Benchmark (Convoy Effect \& Aging)}
+Simulate 20 synthetic tasks across 2 concurrency slots to evaluate FCFS, Strict Priority, Priority Aging, and SJF:
+\begin{lstlisting}[style=cmdstyle]
+./build/astra bench --jobs 20 --slots 2
+\end{lstlisting}
+\begin{itemize}[leftmargin=*,itemsep=1pt,topsep=1pt]
+    \item \textbf{Theoretical OS Findings Displayed:} FCFS suffers Convoy Effect behind Job 0 (Avg Wait: 10.81s); Strict Priority starves low-priority jobs (Max Wait: 20.90s); Priority Aging dynamically elevates priority, achieving \textbf{0 starved tasks}; SJF minimizes average turnaround time to \textbf{11.17s}.
+\end{itemize}
+
+\subsection{Step 7: DAG Workflow Parallel Execution \& Cycle Rejection}
+Test Kahn's parallel dispatch and 3-color DFS cycle rejection:
+\begin{lstlisting}[style=cmdstyle]
+# Parallel Diamond DAG: Stages B & C execute concurrently across worker slots
+./build/astra workflow submit examples/diamond_workflow.json
+
+# Cyclic Workflow Rejection: Validates 3-Color DFS cycle rejection (Exit code 1)
+./build/astra workflow submit examples/cyclic_workflow.json
+\end{lstlisting}
+
+\subsection{Step 8: Interactive Real-Time Terminal Dashboard (TUI) \& Visualizers}
+Launch the live ncurses/POSIX terminal monitoring dashboard:
+\begin{lstlisting}[style=cmdstyle]
+./build/astra top
+\end{lstlisting}
+\begin{itemize}[leftmargin=*,itemsep=1pt,topsep=1pt]
+    \item \textbf{View Switching \& Controls:}
+    \begin{itemize}[leftmargin=*,itemsep=0.5pt,topsep=0.5pt]
+        \item \textbf{[Tab] / Key Shortcuts:} Cycles across views: \texttt{[j]} Jobs Dashboard, \texttt{[g]} Gantt Timeline \& TAT, \texttt{[h]} Host OS \texttt{/proc} Table, \texttt{[w]} Worker Pool, \texttt{[e]} Audit Events.
+        \item \textbf{[Up] / [Down] Arrows:} Navigate through process rows. Selected row is highlighted with a cyan indicator.
+        \item \textbf{[Enter] Per-Process Inspection:} Opens the dedicated \textbf{Process Lifecycle Gantt Inspector} for the highlighted process. Renders chronological state progression, interrupt detection (\texttt{[*** INTERRUPT: FAULT ***]}), automated checkpoint preservation, and auto-resume (\texttt{[=== AUTO-RUN AGAIN ===]}). Press \textbf{[Esc]} to return.
+        \item \textbf{[s] Demo Workloads:} Submits synthetic test jobs directly from within the TUI.
+        \item \textbf{[c] Cancel:} Sends SIGINT / cancellation interrupt to the selected running job.
+        \item \textbf{[q] Quit:} Safely shuts down the TUI and returns to your shell.
+    \end{itemize}
+\end{itemize}
+
+\subsection{Step 9: Dedicated CLI Visualizers (Gantt, Host OS \& Per-Process Inspection)}
+Execute non-interactive terminal visualizers directly from your shell:
+\begin{lstlisting}[style=cmdstyle]
+# 1. System-wide Real-Time Gantt Chart & TAT Breakdown
+./build/astra gantt
+
+# 2. Host Linux Kernel Process Table (/proc Inspector)
+./build/astra host
+
+# 3. Deep Process Lifecycle & Gantt Inspection (Pass Host PID or Astra Job ID)
+./build/astra inspect 1
+./build/astra inspect <job_id>
+\end{lstlisting}
+
+\subsection{Step 10: Complete End-to-End Orchestrated Demonstration Script}
+Execute the unified demo script that runs through all subsystems sequentially:
+\begin{lstlisting}[style=cmdstyle]
+bash scripts/demo.sh
+\end{lstlisting}
+
+\subsection{Step 11: Clean Repository State \& Safe Push to GitHub}
+Commit your clean codebase and documentation to your GitHub repository:
+\begin{lstlisting}[style=cmdstyle]
+# 1. Clean up temporary test sockets and checkpoints
+rm -f /tmp/astra_*.sock /tmp/astra_chk.bin /tmp/*.ckpt
+
+# 2. Stage all source files, documentation, and Excalidraw architecture designs
+git add . && git status
+
+# 3. Commit with clean semantic message
+git commit -m "feat(scheduler): per-process gantt lifecycle, host proc inspector, and updated architecture diagrams"
+
+# 4. Push to remote main branch
+git push origin main
+\end{lstlisting}
+
+% Quick Reference Table
+\vspace{1pt}
+\begin{table}[H]
+\centering
+\scriptsize
+\begin{tabularx}{\textwidth}{l l X}
+\toprule
+\textbf{Goal / Action} & \textbf{Exact Terminal Command} & \textbf{Expected Pass Criteria} \\
+\midrule
+Hardware Probe & \code{./build/astra version} & Detects CPU cores, RAM, and RTX 3050 GPU \\
+Deadlock Lab & \code{./build/astra deadlock demo} & Solves circular wait via Banker's algorithm \\
+Test Suite & \code{ctest --test-dir build} & 10/10 tests pass ($100\%$ green in 18.7s) \\
+Policy Benchmark & \code{./build/astra bench --jobs 20 --slots 2} & Evaluates FCFS, Priority, SJF, Aging \\
+Gantt Chart & \code{./build/astra gantt} & Renders ASCII execution tracks \& TAT formulae \\
+Host OS Table & \code{./build/astra host} & Scans \texttt{/proc} kernel table (PIDs, CPU, RSS, state) \\
+Process Inspect & \code{./build/astra inspect <id|pid>} & Renders per-process lifecycle timeline \& Gantt bar \\
+Diamond DAG & \code{./build/astra workflow submit examples/diamond_workflow.json} & Executes B \& C in parallel; finishes D \\
+Cycle Detection & \code{./build/astra workflow submit examples/cyclic_workflow.json} & Rejects cycle with 3-Color DFS error \\
+Crash \& Resume & \code{./build/workloads/checkpointable_sum --resume ...} & Resumes exactly from checkpoint \\
+Interactive TUI & \code{./build/astra top} & Multi-view dashboard with \texttt{[Enter]} process inspect \\
+Full Demo Script & \code{bash scripts/demo.sh} & Runs 7-step guided verification run \\
+\bottomrule
+\end{tabularx}
+\caption{\textbf{ASTRA OS Scheduler: Quick Command Reference Matrix.}}
+\end{table}
+
+\vspace{-6pt}
+\begin{infobox}[amberorange]{Operator Troubleshooting \& Tips}
+\begin{itemize}[leftmargin=*,itemsep=1pt,topsep=1pt]
+    \item \textbf{Stale Unix Sockets:} If worker daemon fails with \texttt{Address already in use}, run: \code{rm -f /tmp/astra_*.sock}.
+    \item \textbf{Clean Full Rebuild:} If you modify header files: \code{rm -rf build && cmake -B build -G Ninja -DCMAKE_BUILD_TYPE=Release && cmake --build build}.
+\end{itemize}
+\end{infobox}
+
+\end{document}

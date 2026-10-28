@@ -20,12 +20,22 @@ compile_commands.json
 *.db-journal
 *.db-wal
 *.db-shm
+*.ckpt
+*.tmp
+sum_checkpoint.json*
 
 # Log & trace files
 *.log
 *.jsonl
 *.core
 vgcore.*
+
+# TeX / LaTeX auxiliary artifacts
+*.aux
+*.out
+*.toc
+*.listing
+*.synctex.gz
 
 # IDE & OS files
 .vscode/

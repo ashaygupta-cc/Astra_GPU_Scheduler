@@ -12,8 +12,8 @@ inline constexpr unsigned int ASTRA_VERSION_PATCH = 0;
 inline constexpr std::string_view ASTRA_BANNER = R"(
    ___    ____  ______  ____    ___ 
   / _ |  / __/_/_  __/ / _  |  / _ |
- / __ | _\ \   / /   / , _/  / __ |
-/_/ |_|/___/  /_/   /_/|_|  /_/ |_|
+ / __ | _\ \    / /   / , _/  / __ |
+/_/ |_|/___/   /_/   /_/|_|  /_/ |_|
  Autonomous CPU/GPU Job Scheduler
 )";
 

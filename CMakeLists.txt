@@ -87,6 +87,8 @@ add_library(astra_core STATIC
     src/checkpoint/checkpoint.cpp
     src/replay/replay_engine.cpp
     src/benchmark/benchmark.cpp
+    src/telemetry/host_inspector.cpp
+    src/scheduler/gantt.cpp
 )
 target_include_directories(astra_core PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/include)
 target_link_libraries(astra_core PUBLIC ${ASTRA_COMMON_LIBS})
