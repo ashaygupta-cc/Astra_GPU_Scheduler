@@ -14,7 +14,7 @@ RESET="\033[0m"
 
 echo -e "${BOLD}${CYAN}"
 echo "================================================================================"
-echo "          ASTRA COMPREHENSIVE END-TO-END DEMOSTRATION & VERIFICATION           "
+echo "          ASTRA COMPREHENSIVE END-TO-END DEMONSTRATION & VERIFICATION           "
 echo "================================================================================"
 echo -e "${RESET}"
 

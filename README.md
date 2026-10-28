@@ -5,8 +5,8 @@ ASTRA is a terminal-native, single-machine autonomous compute scheduler designed
 ```
    ___    ____  ______  ____    ___ 
   / _ |  / __/_/_  __/ / _  |  / _ |
- / __ | _\ \   / /   / , _/  / __ |
-/_/ |_|/___/  /_/   /_/|_|  /_/ |_|
+ / __ | _\ \    / /   / , _/  / __ |
+/_/ |_|/___/   /_/   /_/|_|  /_/ |_|
  Autonomous CPU/GPU Job Scheduler
 ```
 
