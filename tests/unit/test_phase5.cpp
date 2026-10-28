@@ -3,6 +3,7 @@
 #include "astra/job_store.hpp"
 #include "astra/resource_manager.hpp"
 #include "astra/worker_manager.hpp"
+#include "astra/gantt.hpp"
 
 #include <iostream>
 #include <cassert>
@@ -97,7 +98,7 @@ void test_tui_view_transitions_and_headless_render() {
     test_job.resources.device = DeviceRequirement::CpuOnly;
     dummy_snap.jobs.push_back(test_job);
 
-    for (auto v : {TuiView::Jobs, TuiView::Workers, TuiView::Resources, 
+    for (auto v : {TuiView::Jobs, TuiView::Gantt, TuiView::HostPs, TuiView::Workers, TuiView::Resources, 
                    TuiView::Events, TuiView::JobDetails, TuiView::Logs}) {
         tui.set_view(v);
         tui.render_frame(dummy_snap); // Must not crash
@@ -107,10 +108,83 @@ void test_tui_view_transitions_and_headless_render() {
     std::cout << "[PASS] Tui view transitions and headless rendering stability\n";
 }
 
+void test_per_process_gantt_lifecycle_visualizer() {
+    using namespace astra;
+
+    // 1. Test Host Process Inspection & Lifecycle Gantt
+    pid_t self_pid = ::getpid();
+    auto host_opt = HostInspector::inspect_process(self_pid);
+    assert(host_opt.has_value());
+    assert(host_opt->pid == self_pid);
+    assert(host_opt->state == 'R' || host_opt->state == 'S');
+
+    std::string host_gantt = GanttVisualizer::render_host_process_lifecycle(*host_opt);
+    assert(!host_gantt.empty());
+    assert(host_gantt.find("HOST OS PROCESS LIFECYCLE & GANTT INSPECTION") != std::string::npos);
+    assert(host_gantt.find("Turnaround Time (TAT)") != std::string::npos);
+    assert(host_gantt.find("Gantt Track:") != std::string::npos);
+
+    // 2. Test Astra Workload Lifecycle Gantt with Crash Interrupt & Auto-Resume
+    Job job;
+    job.id = "job-ckpt-recovery-test";
+    job.name = "checkpointable_sum";
+    job.executable_path = "./workloads/checkpointable_sum";
+    job.state = JobState::Succeeded;
+    job.checkpointable = true;
+    job.max_retries = 2;
+    job.retry_count = 1;
+    job.exit_code = 0;
+
+    auto t0 = std::chrono::system_clock::now() - std::chrono::seconds(10);
+    auto t1 = t0 + std::chrono::milliseconds(200);
+    auto t2 = t1 + std::chrono::milliseconds(500);
+    auto t3 = t2 + std::chrono::seconds(3);
+    auto t4 = t3 + std::chrono::milliseconds(200);
+    auto t5 = t4 + std::chrono::seconds(4);
+
+    job.submitted_time = t0;
+    job.enqueued_time = t1;
+    job.started_time = t2;
+    job.completed_time = t5;
+
+    // Attempt #1: Crashed at step 50000 with exit code 42
+    JobAttempt att1;
+    att1.attempt_number = 1;
+    att1.worker_id = 0;
+    att1.pid = 9012;
+    att1.start_time = t2;
+    att1.end_time = t3;
+    att1.exit_code = 42;
+    att1.error_message = "Simulated crash at step 50000";
+    job.attempts.push_back(att1);
+
+    // Attempt #2: Auto-resumed from checkpoint and completed
+    JobAttempt att2;
+    att2.attempt_number = 2;
+    att2.worker_id = 0;
+    att2.pid = 9088;
+    att2.start_time = t4;
+    att2.end_time = t5;
+    att2.exit_code = 0;
+    job.attempts.push_back(att2);
+
+    std::string job_gantt = GanttVisualizer::render_job_lifecycle(job);
+    assert(!job_gantt.empty());
+    assert(job_gantt.find("Job Inspection Report: job-ckpt-recovery-test") != std::string::npos);
+    assert(job_gantt.find("[*** INTERRUPT: FAULT ***]") != std::string::npos);
+    assert(job_gantt.find("[CHECKPOINT PRESERVED]") != std::string::npos);
+    assert(job_gantt.find("[=== AUTO-RUN AGAIN ===]") != std::string::npos);
+    assert(job_gantt.find("[=== AUTO-RESUME COMPUTE P2 ===]") != std::string::npos);
+    assert(job_gantt.find("Turnaround Time (TAT)") != std::string::npos);
+
+    std::cout << "[PASS] Per-process lifecycle timeline, crash interrupt detection, and auto-resume Gantt visualization\n";
+}
+
 int main() {
     std::cout << "Running ASTRA Phase 5 (TUI & Telemetry) Unit Tests...\n";
     test_tui_snapshot_aggregation();
     test_tui_view_transitions_and_headless_render();
+    test_per_process_gantt_lifecycle_visualizer();
     std::cout << "All Phase 5 tests passed successfully!\n";
     return 0;
 }

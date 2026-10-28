@@ -17,6 +17,7 @@ struct VersionCommand {};
 
 struct SubmitCommand {
     std::string workload;
+    std::string name;
     std::vector<std::string> args;
     unsigned int cpu_slots = 1;
     uint64_t ram_mb = 128;
@@ -94,6 +95,14 @@ struct BenchmarkCommand {
     int slots = 2;
 };
 
+struct GanttCommand {
+    bool all = true;
+};
+
+struct HostPsCommand {
+    size_t limit = 25;
+};
+
 struct ReplCommand {};
 
 struct InvalidCommand {
@@ -116,6 +125,8 @@ using Command = std::variant<
     ReplayCommand,
     DeadlockCommand,
     BenchmarkCommand,
+    GanttCommand,
+    HostPsCommand,
     DemoCommand,
     TopCommand,
     ShutdownCommand,

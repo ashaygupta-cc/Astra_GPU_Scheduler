@@ -9,12 +9,17 @@
 #include "astra/deadlock_detector.hpp"
 #include "astra/replay_engine.hpp"
 #include "astra/benchmark.hpp"
+#include "astra/host_inspector.hpp"
+#include "astra/gantt.hpp"
+#include "astra/scheduler.hpp"
 
 #include <iomanip>
 #include <sstream>
 #include <filesystem>
 #include <atomic>
 #include <chrono>
+#include <thread>
+#include <unistd.h>
 
 namespace astra {
 
@@ -70,6 +75,8 @@ int CliHandler::execute(const Command& cmd, std::ostream& out, std::ostream& err
                 << "  version                   Display version and system diagnostics\n"
                 << "  submit <workload> [opts]  Submit a workload binary for execution\n"
                 << "  ps [--all]                List active / completed scheduled jobs\n"
+                << "  host [--limit N]          Inspect host OS Linux kernel processes (/proc table)\n"
+                << "  gantt [--all]             Render real-time execution Gantt chart & TAT metrics\n"
                 << "  inspect <job-id>          Inspect complete metadata and execution history\n"
                 << "  cancel <job-id>           Cancel a queued or running job\n"
                 << "  logs <job-id>             View captured execution stdout/stderr\n"
@@ -100,9 +107,19 @@ int CliHandler::execute(const Command& cmd, std::ostream& out, std::ostream& err
         }
 
         else if constexpr (std::is_same_v<T, VersionCommand>) {
+            ResourceManager rm(config_.max_cpu_slots, 4096);
+            auto snap = rm.get_snapshot();
             out << astra::ASTRA_BANNER << "\n"
-                << "ASTRA Scheduler Version " << astra::ASTRA_VERSION << " (C++20 Linux / WSL2)\n"
-                << "Build: Release-Ready POSIX Systems Engine\n";
+                << "ASTRA Scheduler Version " << astra::ASTRA_VERSION << " (C++20 Linux / POSIX)\n"
+                << "Build: Release-Ready POSIX Systems Engine\n"
+                << "======================================================================\n"
+                << "Host Platform Diagnostics (Live System Query):\n"
+                << "  - Logical CPU Cores:   " << std::thread::hardware_concurrency() << " cores (Slot Capacity: " << snap.total_cpu_slots << ")\n"
+                << "  - Host Page Size:      " << sysconf(_SC_PAGESIZE) << " bytes\n"
+                << "  - Physical Memory:     " << (snap.measured_total_ram_mb > 0 ? std::to_string(snap.measured_total_ram_mb) + " MB Total (" + std::to_string(snap.measured_available_ram_mb) + " MB Available)" : "Dynamic Kernel Managed") << "\n"
+                << "  - GPU Hardware:        " << (snap.gpu_available ? "Detected (" + snap.gpu_name + ", " + std::to_string(snap.total_gpu_memory_mb) + " MB VRAM)" : "CPU-Only Execution Mode (Host Fallback)") << "\n"
+                << "  - Telemetry Source:    " << snap.telemetry_source_label << "\n"
+                << "======================================================================\n";
             return 0;
         }
 
@@ -113,7 +130,7 @@ int CliHandler::execute(const Command& cmd, std::ostream& out, std::ostream& err
 
             // Extract filename from workload path as friendly job name
             std::filesystem::path p(c.workload);
-            job.name = p.stem().string();
+            job.name = c.name.empty() ? p.stem().string() : c.name;
             job.argv = c.args;
             job.resources.cpu_slots = c.cpu_slots;
             job.resources.ram_mb = c.ram_mb;
@@ -243,54 +260,52 @@ int CliHandler::execute(const Command& cmd, std::ostream& out, std::ostream& err
         }
 
         else if constexpr (std::is_same_v<T, InspectCommand>) {
+            // 1. If identifier is numeric PID, check host processes first
+            if (!c.job_id.empty() && std::all_of(c.job_id.begin(), c.job_id.end(), ::isdigit)) {
+                try {
+                    pid_t pid = static_cast<pid_t>(std::stol(c.job_id));
+                    auto proc_opt = HostInspector::inspect_process(pid);
+                    if (proc_opt.has_value()) {
+                        out << GanttVisualizer::render_host_process_lifecycle(*proc_opt) << "\n";
+                        return 0;
+                    }
+                } catch (...) {}
+            }
+
+            // 2. Query scheduler database for Astra workload
             std::string err_str;
             auto job_opt = store_.get_job(c.job_id, &err_str);
             if (!job_opt) {
-                err << "[ERROR] Job not found: " << c.job_id << "\n";
+                // If not found as exact job_id, check if numeric PID matches a host process
+                if (!c.job_id.empty() && std::all_of(c.job_id.begin(), c.job_id.end(), ::isdigit)) {
+                    err << "[ERROR] Host PID " << c.job_id << " not found or no longer active.\n";
+                } else {
+                    err << "[ERROR] Workload Job or Host Process not found: " << c.job_id << "\n";
+                }
                 return 1;
             }
 
             const auto& j = *job_opt;
-            nlohmann::json json_view = j;
-            out << "Job Inspection Report: " << j.id << "\n"
-                << "==================================================\n"
-                << "Name:               " << j.name << "\n"
-                << "Executable Path:    " << j.executable_path << "\n"
-                << "State:              " << to_string(j.state) << "\n"
-                << "Priority:           " << j.priority << "\n"
-                << "Device Requirement: " << to_string(j.resources.device) << "\n"
-                << "Resources:          CPU=" << j.resources.cpu_slots 
-                << " slots, RAM=" << j.resources.ram_mb << " MB, GPU Mem=" << j.resources.gpu_memory_mb << " MB\n"
-                << "Max Retries:        " << j.max_retries << " (Attempts so far: " << j.attempts.size() << ")\n"
-                << "Assigned Worker:    " << (j.assigned_worker_id >= 0 ? std::to_string(j.assigned_worker_id) : "-")
-                << " (PID: " << (j.worker_pid > 0 ? std::to_string(j.worker_pid) : "-") << ")\n"
-                << "Exit Code:          " << j.exit_code << "\n"
-                << "Failure Reason:     " << (j.failure_reason.empty() ? "None" : j.failure_reason) << "\n"
-                << "Submitted At:       " << format_time_point(j.submitted_time) << "\n"
-                << "Enqueued At:        " << format_time_point(j.enqueued_time) << "\n"
-                << "Started At:         " << format_time_point(j.started_time) << "\n"
-                << "Completed At:       " << format_time_point(j.completed_time) << "\n";
+            auto events = store_.get_events(j.id);
 
-            if (!j.dependencies.empty()) {
-                out << "Dependencies:       ";
-                for (size_t idx = 0; idx < j.dependencies.size(); ++idx) {
-                    out << (idx > 0 ? ", " : "") << j.dependencies[idx];
-                }
-                out << "\n";
-            }
+            // Render complete per-process lifecycle timeline and ASCII Gantt chart
+            out << GanttVisualizer::render_job_lifecycle(j, events) << "\n";
 
-            if (!j.attempts.empty()) {
-                out << "\nAttempts History:\n";
-                for (const auto& att : j.attempts) {
-                    out << "  - Attempt #" << att.attempt_number 
-                        << " on worker #" << att.worker_id << " (PID " << att.pid << ")"
-                        << " -> Exit Code: " << att.exit_code;
-                    if (!att.error_message.empty()) out << " (" << att.error_message << ")";
-                    out << "\n";
+            // If job has an active host worker PID, also display host telemetry link
+            if (j.worker_pid > 0) {
+                auto host_proc = HostInspector::inspect_process(j.worker_pid);
+                if (host_proc.has_value()) {
+                    out << "Correlated Host Worker OS Process:\n"
+                        << "  - Worker PID:    " << j.worker_pid << " (comm: " << host_proc->comm << ")\n"
+                        << "  - Kernel State:  " << host_proc->state << " (" << HostInspector::state_description(host_proc->state) << ")\n"
+                        << "  - CPU Time:      " << (host_proc->cpu_time_ms / 1000.0) << "s (User: " << (host_proc->utime_ms / 1000.0) << "s, Kernel: " << (host_proc->stime_ms / 1000.0) << "s)\n"
+                        << "  - Memory RSS:    " << (host_proc->rss_kb / 1024.0) << " MB\n"
+                        << "  - Preemptions:   " << host_proc->nonvoluntary_ctxt_switches << " CFS interrupts\n"
+                        << "  - I/O Switches:  " << host_proc->voluntary_ctxt_switches << " (wchan: " << host_proc->wchan << ")\n"
+                        << "========================================================================================================\n";
                 }
             }
 
-            out << "==================================================\n";
             return 0;
         }
 
@@ -576,6 +591,11 @@ int CliHandler::execute(const Command& cmd, std::ostream& out, std::ostream& err
         else if constexpr (std::is_same_v<T, TopCommand>) {
             ResourceManager rm(config_.max_cpu_slots, 4096);
             WorkerManager wm(config_.max_workers);
+            wm.init(config_.max_workers);
+
+            Scheduler scheduler(store_, wm, rm, config_);
+            scheduler.start();
+
             auto start_tp = std::chrono::system_clock::now();
             Tui tui;
             tui.run(
@@ -584,10 +604,31 @@ int CliHandler::execute(const Command& cmd, std::ostream& out, std::ostream& err
                 },
                 [&](const std::string& job_id) -> bool {
                     std::string err_str;
+                    wm.cancel_job(job_id);
                     return store_.update_job_state(job_id, JobState::Cancelled, 0, "Cancelled via TUI", &err_str);
                 },
-                nullptr
+                [&]() {
+                    // Demo job submission when 's' key is pressed in TUI
+                    Job demo_job;
+                    demo_job.id = generate_job_id();
+                    demo_job.name = "Compute Task";
+                    std::string exec = "build/workloads/cpu_burn";
+                    if (!std::filesystem::exists(exec)) exec = "./workloads/cpu_burn";
+                    demo_job.executable_path = exec;
+                    demo_job.argv = {"3"};
+                    demo_job.priority = 8;
+                    demo_job.resources.cpu_slots = 1;
+                    demo_job.resources.ram_mb = 128;
+                    demo_job.state = JobState::Queued;
+                    store_.save_job(demo_job);
+                    Event ev{0, std::chrono::system_clock::now(), EventType::JOB_SUBMITTED, demo_job.id, -1, "{\"name\":\"Compute Task\"}"};
+                    store_.record_event(ev);
+                    Event ev_q{0, std::chrono::system_clock::now(), EventType::JOB_QUEUED, demo_job.id, -1, "{}"};
+                    store_.record_event(ev_q);
+                }
             );
+            scheduler.stop();
+            wm.shutdown_all(true);
             return 0;
         }
 
@@ -619,8 +660,16 @@ int CliHandler::execute(const Command& cmd, std::ostream& out, std::ostream& err
             return 0;
         }
 
-        else if constexpr (std::is_same_v<T, DemoCommand>) {
-            out << DeadlockDetector::run_deadlock_simulation_demo();
+        else if constexpr (std::is_same_v<T, HostPsCommand>) {
+            auto procs = HostInspector::scan_processes(c.limit);
+            out << HostInspector::render_host_table(procs, c.limit);
+            return 0;
+        }
+
+        else if constexpr (std::is_same_v<T, GanttCommand>) {
+            auto jobs = store_.get_all_jobs();
+            auto report = GanttVisualizer::calculate_metrics(jobs);
+            out << GanttVisualizer::render_chart(report);
             return 0;
         }
 

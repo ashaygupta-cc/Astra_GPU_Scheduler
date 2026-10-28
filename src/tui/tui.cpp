@@ -1,5 +1,7 @@
 #include "astra/tui.hpp"
 #include "astra/version.hpp"
+#include "astra/gantt.hpp"
+#include "astra/host_inspector.hpp"
 
 #if __has_include(<curses.h>)
 #include <curses.h>
@@ -94,7 +96,7 @@ void Tui::shutdown() {
 void Tui::render_header(int /*max_y*/, int max_x, const TuiSnapshot& snap) {
 #if defined(NCURSES_VERSION) || defined(CURSES)
     attron(COLOR_PAIR(7) | A_BOLD);
-    std::string title = " ASTRA — Autonomous Compute Scheduler (v" + std::string(astra::ASTRA_VERSION) + ") ";
+    std::string title = " ASTRA - Autonomous Compute Scheduler (v" + std::string(astra::ASTRA_VERSION) + ") ";
     mvaddstr(0, 0, title.c_str());
     for (int x = static_cast<int>(title.size()); x < max_x; ++x) addch(' ');
     attroff(COLOR_PAIR(7) | A_BOLD);
@@ -103,6 +105,8 @@ void Tui::render_header(int /*max_y*/, int max_x, const TuiSnapshot& snap) {
     std::string view_name;
     switch (current_view_) {
         case TuiView::Jobs:       view_name = "JOBS DASHBOARD"; break;
+        case TuiView::Gantt:      view_name = "GANTT TIMELINE & TAT"; break;
+        case TuiView::HostPs:     view_name = "HOST LINUX OS (/proc)"; break;
         case TuiView::Workers:    view_name = "WORKER POOL"; break;
         case TuiView::Resources:  view_name = "HARDWARE TELEMETRY"; break;
         case TuiView::Events:     view_name = "EVENT AUDIT LOG"; break;
@@ -226,7 +230,7 @@ void Tui::render_jobs_view(int max_y, int max_x, const TuiSnapshot& snap) {
     mvaddstr(ry++, split_x + 2, "GPU Hardware:");
     if (snap.resources.gpu_available) {
         attron(COLOR_PAIR(6) | A_BOLD);
-        mvaddstr(ry++, split_x + 2, "NVIDIA RTX 3050 (4 GB)");
+        mvaddstr(ry++, split_x + 2, snap.resources.gpu_name.c_str());
         attroff(COLOR_PAIR(6) | A_BOLD);
         std::string gpu_st = snap.resources.gpu_reserved ? "Status: RESERVED" : "Status: AVAILABLE";
         mvaddstr(ry++, split_x + 2, gpu_st.c_str());
@@ -239,7 +243,7 @@ void Tui::render_jobs_view(int max_y, int max_x, const TuiSnapshot& snap) {
     ry++;
     mvaddstr(ry++, split_x + 2, "Telemetry Source:");
     std::string src_label = snap.resources.telemetry_source_label;
-    if (src_label.size() > 28) src_label = src_label.substr(0, 27) + "…";
+    if (src_label.size() > 28) src_label = src_label.substr(0, 25) + "...";
     mvaddstr(ry++, split_x + 2, src_label.c_str());
 
     // Bottom Event Ticker
@@ -254,7 +258,7 @@ void Tui::render_jobs_view(int max_y, int max_x, const TuiSnapshot& snap) {
         std::string ev_msg = "[" + std::string(to_string(ev.type)) + "] Job: " + 
             (ev.job_id.empty() ? "-" : ev.job_id) + " " + ev.payload_json;
         if (ev_msg.size() > static_cast<size_t>(max_x - 18)) {
-            ev_msg = ev_msg.substr(0, static_cast<size_t>(max_x - 20)) + "…";
+            ev_msg = ev_msg.substr(0, static_cast<size_t>(max_x - 21)) + "...";
         }
         mvaddstr(event_y + 1, 15, ev_msg.c_str());
     } else {
@@ -264,6 +268,130 @@ void Tui::render_jobs_view(int max_y, int max_x, const TuiSnapshot& snap) {
     (void)max_y;
     (void)max_x;
     (void)snap;
+#endif
+}
+
+void Tui::render_gantt_view(int max_y, int max_x, const TuiSnapshot& snap) {
+#if defined(NCURSES_VERSION) || defined(CURSES)
+    attron(COLOR_PAIR(1) | A_BOLD);
+    mvaddstr(3, 1, "REAL-TIME EXECUTION GANTT TIMELINE & SCHEDULING METRICS (TAT = Wt + tau + Tio)");
+    mvaddstr(4, 1, "ID              NAME            STATE          GANTT TRACK                  TAT      ETA");
+    attroff(COLOR_PAIR(1) | A_BOLD);
+    mvhline(5, 1, ACS_HLINE, max_x - 2);
+
+    auto report = GanttVisualizer::calculate_metrics(snap.jobs);
+    int row = 6;
+    int max_rows = max_y - 12;
+
+    if (report.metrics.empty()) {
+        mvaddstr(row, 2, "(No active or queued workloads in store)");
+    } else {
+        for (size_t i = 0; i < report.metrics.size() && (row - 6) < max_rows; ++i, ++row) {
+            const auto& m = report.metrics[i];
+            int pair = 1;
+            if (m.state == JobState::Running) pair = 2;
+            else if (m.state == JobState::Queued || m.state == JobState::WaitingForDependencies) pair = 3;
+            else if (m.state == JobState::Failed || m.state == JobState::Cancelled) pair = 4;
+            else if (m.state == JobState::Succeeded) pair = 2;
+
+            std::string tat_str;
+            {
+                std::ostringstream ts;
+                ts << std::fixed << std::setprecision(1) << m.turnaround_sec << "s";
+                tat_str = ts.str();
+            }
+
+            std::string eta_str;
+            if (m.state == JobState::Succeeded) eta_str = "Done";
+            else if (m.state == JobState::Cancelled) eta_str = "Cancel";
+            else if (m.state == JobState::Failed) eta_str = "Fail";
+            else {
+                std::ostringstream es;
+                es << "+" << std::fixed << std::setprecision(1) << m.eta_sec << "s";
+                eta_str = es.str();
+            }
+
+            std::string id_str = m.job_id.size() > 14 ? m.job_id.substr(0, 14) : m.job_id;
+            std::string name_str = m.name.size() > 14 ? m.name.substr(0, 14) : m.name;
+            std::string state_str = std::string(to_string(m.state));
+            if (state_str.size() > 13) state_str = state_str.substr(0, 13);
+
+            attron(COLOR_PAIR(pair));
+            mvprintw(row, 1, "%-15s %-15s %-14s %-28s %-8s %s",
+                     id_str.c_str(), name_str.c_str(), state_str.c_str(),
+                     m.timeline_track.c_str(), tat_str.c_str(), eta_str.c_str());
+            attroff(COLOR_PAIR(pair));
+        }
+
+        int sum_y = row + 1;
+        if (sum_y < max_y - 4) {
+            mvhline(sum_y, 1, ACS_HLINE, max_x - 2);
+            attron(COLOR_PAIR(1));
+            mvprintw(sum_y + 1, 1, "Avg Turnaround (TAT): %.2fs | Avg Waiting Time (Wt): %.2fs | Max Wait: %.2fs",
+                     report.avg_turnaround, report.avg_wait_time, report.max_wait_time);
+            attroff(COLOR_PAIR(1));
+        }
+    }
+#else
+    (void)max_y; (void)max_x; (void)snap;
+#endif
+}
+
+void Tui::render_host_ps_view(int max_y, int max_x) {
+#if defined(NCURSES_VERSION) || defined(CURSES)
+    attron(COLOR_PAIR(1) | A_BOLD);
+    mvaddstr(3, 1, "HOST OS LINUX KERNEL PROCESSES (/proc KERNEL TABLE) [Enter: Inspect Gantt Timeline]");
+    mvaddstr(4, 1, "PID     PPID    USER        STAT  CPU TIME  ELAPSED   RSS MEM      COMMAND");
+    attroff(COLOR_PAIR(1) | A_BOLD);
+    mvhline(5, 1, ACS_HLINE, max_x - 2);
+
+    cached_host_procs_ = HostInspector::scan_processes(static_cast<size_t>(max_y - 9));
+    int row = 6;
+    int max_rows = max_y - 9;
+    int proc_count = static_cast<int>(cached_host_procs_.size());
+
+    if (selected_row_ >= proc_count && proc_count > 0) selected_row_ = proc_count - 1;
+    if (selected_row_ < 0) selected_row_ = 0;
+
+    for (size_t i = 0; i < cached_host_procs_.size() && (row - 6) < max_rows; ++i, ++row) {
+        const auto& p = cached_host_procs_[i];
+        bool selected = (static_cast<int>(i) == selected_row_);
+
+        int pair = 1;
+        if (selected) pair = 5;
+        else if (p.state == 'R') pair = 2; // Green for running
+        else if (p.state == 'D') pair = 3; // Yellow for disk IO
+        else if (p.state == 'Z') pair = 4; // Red for zombie
+
+        double mem_mb = static_cast<double>(p.rss_kb) / 1024.0;
+        std::string user_str = p.user.size() > 10 ? p.user.substr(0, 10) : p.user;
+
+        uint64_t total_sec = p.cpu_time_ms / 1000;
+        char cpu_buf[32];
+        snprintf(cpu_buf, sizeof(cpu_buf), "%02lu:%02lu", (unsigned long)(total_sec / 60), (unsigned long)(total_sec % 60));
+
+        uint64_t el_sec = p.elapsed_sec;
+        char el_buf[32];
+        snprintf(el_buf, sizeof(el_buf), "%02lu:%02lu", (unsigned long)(el_sec / 60), (unsigned long)(el_sec % 60));
+
+        std::string cmd = p.cmdline;
+        int cmd_avail = max_x - 67;
+        if (cmd_avail > 5 && static_cast<int>(cmd.size()) > cmd_avail) {
+            cmd = cmd.substr(0, static_cast<size_t>(cmd_avail - 3)) + "...";
+        }
+
+        if (selected) attron(COLOR_PAIR(5) | A_BOLD);
+        else attron(COLOR_PAIR(pair));
+
+        mvprintw(row, 1, "%-7d %-7d %-11s %c     %-9s %-9s %-6.1f MB   %s",
+                 p.pid, p.ppid, user_str.c_str(), p.state,
+                 cpu_buf, el_buf, mem_mb, cmd.c_str());
+
+        if (selected) attroff(COLOR_PAIR(5) | A_BOLD);
+        else attroff(COLOR_PAIR(pair));
+    }
+#else
+    (void)max_y; (void)max_x;
 #endif
 }
 
@@ -320,8 +448,8 @@ void Tui::render_resources_view(int max_y, int max_x, const TuiSnapshot& snap) {
     mvaddstr(y++, 2, ("Host Available RAM:      " + std::to_string(snap.resources.measured_available_ram_mb) + " MB").c_str());
     y++;
 
-    mvaddstr(y++, 2, ("GPU Acceleration:        " + std::string(snap.resources.gpu_available ? "Detected (NVIDIA)" : "Disabled (CPU-Only)")).c_str());
-    mvaddstr(y++, 2, ("GPU Device Name:         " + std::string(snap.resources.gpu_available ? "NVIDIA GeForce RTX 3050 Laptop GPU" : "N/A")).c_str());
+    mvaddstr(y++, 2, ("GPU Acceleration:        " + std::string(snap.resources.gpu_available ? "Detected (Hardware Acceleration)" : "Disabled (CPU-Only)")).c_str());
+    mvaddstr(y++, 2, ("GPU Device Name:         " + (snap.resources.gpu_available ? snap.resources.gpu_name : "N/A (Host CPU Mode)")).c_str());
     mvaddstr(y++, 2, ("GPU Total VRAM:          " + std::to_string(snap.resources.total_gpu_memory_mb) + " MB").c_str());
     mvaddstr(y++, 2, ("GPU Reservation State:   " + std::string(snap.resources.gpu_reserved ? "BUSY / RESERVED" : "IDLE / AVAILABLE")).c_str());
     y++;
@@ -361,39 +489,56 @@ void Tui::render_events_view(int max_y, int max_x, const TuiSnapshot& snap) {
 
 void Tui::render_job_details_view(int max_y, int max_x, const TuiSnapshot& snap) {
 #if defined(NCURSES_VERSION) || defined(CURSES)
-    (void)max_y;
-    attron(COLOR_PAIR(1) | A_BOLD);
-    mvaddstr(3, 1, "JOB INSPECTION DETAILS [Press Esc to return]");
-    attroff(COLOR_PAIR(1) | A_BOLD);
-    mvhline(4, 1, ACS_HLINE, max_x - 2);
-
-    const Job* found = nullptr;
-    for (const auto& j : snap.jobs) {
-        if (j.id == inspect_job_id_) {
-            found = &j;
-            break;
+    std::string text;
+    if (inspect_pid_ > 0) {
+        auto proc_opt = HostInspector::inspect_process(inspect_pid_);
+        if (proc_opt.has_value()) {
+            text = GanttVisualizer::render_host_process_lifecycle(*proc_opt);
+        } else {
+            text = "Host Process PID " + std::to_string(inspect_pid_) + " is no longer active.\n";
+        }
+    } else {
+        const Job* found = nullptr;
+        for (const auto& j : snap.jobs) {
+            if (j.id == inspect_job_id_) {
+                found = &j;
+                break;
+            }
+        }
+        if (found) {
+            text = GanttVisualizer::render_job_lifecycle(*found, snap.recent_events);
+        } else {
+            text = "Job not found or no job selected.\n";
         }
     }
 
-    if (!found) {
-        mvaddstr(6, 2, "Job not found or no job selected.");
-        return;
-    }
+    std::istringstream iss(text);
+    std::string line;
+    int y = 3;
+    while (std::getline(iss, line) && y < max_y - 2) {
+        if (static_cast<int>(line.size()) > max_x - 2) {
+            line = line.substr(0, static_cast<size_t>(max_x - 5)) + "...";
+        }
 
-    int y = 6;
-    mvaddstr(y++, 2, ("Job ID:          " + found->id).c_str());
-    mvaddstr(y++, 2, ("Workload Name:   " + found->name).c_str());
-    mvaddstr(y++, 2, ("Binary Path:     " + found->executable_path).c_str());
-    mvaddstr(y++, 2, ("State:           " + std::string(to_string(found->state))).c_str());
-    mvaddstr(y++, 2, ("Base Priority:   " + std::to_string(found->priority)).c_str());
-    mvaddstr(y++, 2, ("CPU Slots:       " + std::to_string(found->resources.cpu_slots)).c_str());
-    mvaddstr(y++, 2, ("RAM Estimate:    " + std::to_string(found->resources.ram_mb) + " MB").c_str());
-    mvaddstr(y++, 2, ("Device Req:      " + std::string(to_string(found->resources.device))).c_str());
-    mvaddstr(y++, 2, ("Worker Assigned: " + (found->assigned_worker_id >= 0 ? std::to_string(found->assigned_worker_id) : "-")).c_str());
-    mvaddstr(y++, 2, ("Worker PID:      " + (found->worker_pid > 0 ? std::to_string(found->worker_pid) : "-")).c_str());
-    mvaddstr(y++, 2, ("Exit Code:       " + std::to_string(found->exit_code)).c_str());
-    if (!found->failure_reason.empty()) {
-        mvaddstr(y++, 2, ("Diagnostics:     " + found->failure_reason).c_str());
+        if (line.find("====") != std::string::npos || line.find("----") != std::string::npos) {
+            attron(COLOR_PAIR(1));
+            mvaddstr(y++, 1, line.c_str());
+            attroff(COLOR_PAIR(1));
+        } else if (line.find("INTERRUPT") != std::string::npos || line.find("PREEMPT") != std::string::npos) {
+            attron(COLOR_PAIR(4) | A_BOLD);
+            mvaddstr(y++, 1, line.c_str());
+            attroff(COLOR_PAIR(4) | A_BOLD);
+        } else if (line.find("AUTO-RESUME") != std::string::npos || line.find("AUTO-RUN") != std::string::npos) {
+            attron(COLOR_PAIR(2) | A_BOLD);
+            mvaddstr(y++, 1, line.c_str());
+            attroff(COLOR_PAIR(2) | A_BOLD);
+        } else if (line.find("Gantt Track:") != std::string::npos || line.find("[..") != std::string::npos) {
+            attron(COLOR_PAIR(3) | A_BOLD);
+            mvaddstr(y++, 1, line.c_str());
+            attroff(COLOR_PAIR(3) | A_BOLD);
+        } else {
+            mvaddstr(y++, 1, line.c_str());
+        }
     }
 #else
     (void)max_y;
@@ -442,7 +587,7 @@ void Tui::render_footer(int max_y, int max_x) {
     mvhline(y, 0, ACS_HLINE, max_x);
 
     attron(COLOR_PAIR(1) | A_BOLD);
-    const char* controls = " [Tab] View  [arrows] Nav  [Enter] Inspect  [c] Cancel  [s] Submit  [l] Logs  [q] Quit ";
+    const char* controls = " [Tab] Cycle  [g] Gantt  [h] Host OS  [arrows] Nav  [Enter] Inspect  [c] Cancel  [q] Quit ";
     mvaddstr(y + 1, 1, controls);
     attroff(COLOR_PAIR(1) | A_BOLD);
 #else
@@ -466,6 +611,12 @@ void Tui::render_frame(const TuiSnapshot& snap) {
     switch (current_view_) {
         case TuiView::Jobs:
             render_jobs_view(max_y, max_x, snap);
+            break;
+        case TuiView::Gantt:
+            render_gantt_view(max_y, max_x, snap);
+            break;
+        case TuiView::HostPs:
+            render_host_ps_view(max_y, max_x);
             break;
         case TuiView::Workers:
             render_workers_view(max_y, max_x, snap);
@@ -520,14 +671,27 @@ int Tui::run(std::function<TuiSnapshot()> snapshot_fn,
                 break;
 
             case '\t': // Tab cycles views
-                if (current_view_ == TuiView::Jobs) current_view_ = TuiView::Workers;
+                if (current_view_ == TuiView::Jobs) current_view_ = TuiView::Gantt;
+                else if (current_view_ == TuiView::Gantt) current_view_ = TuiView::HostPs;
+                else if (current_view_ == TuiView::HostPs) current_view_ = TuiView::Workers;
                 else if (current_view_ == TuiView::Workers) current_view_ = TuiView::Resources;
                 else if (current_view_ == TuiView::Resources) current_view_ = TuiView::Events;
                 else current_view_ = TuiView::Jobs;
                 break;
 
-            case 27: // Escape key
-                current_view_ = TuiView::Jobs;
+            case 'g':
+            case 'G':
+                current_view_ = TuiView::Gantt;
+                break;
+
+            case 'h':
+            case 'H':
+                current_view_ = TuiView::HostPs;
+                break;
+
+            case 27: // Escape key returns to previous view
+                current_view_ = previous_view_;
+                inspect_pid_ = 0;
                 break;
 
             case KEY_UP:
@@ -537,17 +701,34 @@ int Tui::run(std::function<TuiSnapshot()> snapshot_fn,
 
             case KEY_DOWN:
             case 'j':
-                if (!snap.jobs.empty() && selected_row_ < static_cast<int>(snap.jobs.size()) - 1) {
-                    ++selected_row_;
+                if (current_view_ == TuiView::HostPs) {
+                    if (!cached_host_procs_.empty() && selected_row_ < static_cast<int>(cached_host_procs_.size()) - 1) {
+                        ++selected_row_;
+                    }
+                } else {
+                    if (!snap.jobs.empty() && selected_row_ < static_cast<int>(snap.jobs.size()) - 1) {
+                        ++selected_row_;
+                    }
                 }
                 break;
 
             case '\n':
             case '\r':
             case KEY_ENTER:
-                if (!snap.jobs.empty() && selected_row_ < static_cast<int>(snap.jobs.size())) {
-                    inspect_job_id_ = snap.jobs[static_cast<size_t>(selected_row_)].id;
-                    current_view_ = TuiView::JobDetails;
+                if (current_view_ == TuiView::HostPs) {
+                    if (!cached_host_procs_.empty() && selected_row_ < static_cast<int>(cached_host_procs_.size())) {
+                        inspect_pid_ = cached_host_procs_[static_cast<size_t>(selected_row_)].pid;
+                        inspect_job_id_.clear();
+                        previous_view_ = TuiView::HostPs;
+                        current_view_ = TuiView::JobDetails;
+                    }
+                } else if (current_view_ == TuiView::Jobs) {
+                    if (!snap.jobs.empty() && selected_row_ < static_cast<int>(snap.jobs.size())) {
+                        inspect_job_id_ = snap.jobs[static_cast<size_t>(selected_row_)].id;
+                        inspect_pid_ = 0;
+                        previous_view_ = TuiView::Jobs;
+                        current_view_ = TuiView::JobDetails;
+                    }
                 }
                 break;
 

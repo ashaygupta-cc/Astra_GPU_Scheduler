@@ -1,6 +1,7 @@
 #pragma once
 
 #include "astra/tui_snapshot.hpp"
+#include "astra/host_inspector.hpp"
 #include <functional>
 #include <string>
 
@@ -8,6 +9,8 @@ namespace astra {
 
 enum class TuiView {
     Jobs,
+    Gantt,
+    HostPs,
     Workers,
     Resources,
     Events,
@@ -42,12 +45,17 @@ public:
 private:
     bool initialized_ = false;
     TuiView current_view_ = TuiView::Jobs;
+    TuiView previous_view_ = TuiView::Jobs;
     int selected_row_ = 0;
     std::string inspect_job_id_;
+    pid_t inspect_pid_ = 0;
+    std::vector<HostProcessInfo> cached_host_procs_;
     std::string status_banner_msg_;
 
     void render_header(int max_y, int max_x, const TuiSnapshot& snap);
     void render_jobs_view(int max_y, int max_x, const TuiSnapshot& snap);
+    void render_gantt_view(int max_y, int max_x, const TuiSnapshot& snap);
+    void render_host_ps_view(int max_y, int max_x);
     void render_workers_view(int max_y, int max_x, const TuiSnapshot& snap);
     void render_resources_view(int max_y, int max_x, const TuiSnapshot& snap);
     void render_events_view(int max_y, int max_x, const TuiSnapshot& snap);

@@ -161,8 +161,30 @@ Command CommandParser::parse(const std::vector<std::string>& raw_tokens, const s
         for (size_t i = start_idx + 1; i < raw_tokens.size(); ++i) {
             if (raw_tokens[i] == "--all" || raw_tokens[i] == "-a") {
                 cmd.all = true;
+            } else if (raw_tokens[i] == "--host" || raw_tokens[i] == "-H") {
+                return HostPsCommand{};
             } else {
                 return InvalidCommand{"Unknown option for 'ps': " + raw_tokens[i]};
+            }
+        }
+        return cmd;
+    }
+
+    if (subcmd == "host" || subcmd == "hostps") {
+        HostPsCommand cmd;
+        for (size_t i = start_idx + 1; i < raw_tokens.size(); ++i) {
+            if (raw_tokens[i] == "--limit" && i + 1 < raw_tokens.size()) {
+                cmd.limit = static_cast<size_t>(std::stoul(raw_tokens[++i]));
+            }
+        }
+        return cmd;
+    }
+
+    if (subcmd == "gantt" || subcmd == "timeline") {
+        GanttCommand cmd;
+        for (size_t i = start_idx + 1; i < raw_tokens.size(); ++i) {
+            if (raw_tokens[i] == "--all" || raw_tokens[i] == "-a") {
+                cmd.all = true;
             }
         }
         return cmd;
@@ -319,16 +341,15 @@ Command CommandParser::parse(const std::vector<std::string>& raw_tokens, const s
         }
 
         SubmitCommand cmd;
-        cmd.workload = raw_tokens[start_idx + 1];
-
-        std::string path_err;
-        if (!is_safe_workload_path(cmd.workload, workload_root, &path_err)) {
-            return InvalidCommand{"Invalid workload: " + path_err};
-        }
-
-        for (size_t i = start_idx + 2; i < raw_tokens.size(); ++i) {
+        for (size_t i = start_idx + 1; i < raw_tokens.size(); ++i) {
             const std::string& opt = raw_tokens[i];
-            if (opt == "--cpu-slots") {
+            if (opt == "--name") {
+                if (i + 1 >= raw_tokens.size()) return InvalidCommand{"Missing value for --name"};
+                cmd.name = raw_tokens[++i];
+            } else if (opt == "--exec") {
+                if (i + 1 >= raw_tokens.size()) return InvalidCommand{"Missing value for --exec"};
+                cmd.workload = raw_tokens[++i];
+            } else if (opt == "--cpu-slots") {
                 if (i + 1 >= raw_tokens.size()) return InvalidCommand{"Missing value for --cpu-slots"};
                 auto val = parse_int(raw_tokens[++i]);
                 if (!val || *val <= 0) return InvalidCommand{"--cpu-slots must be a positive integer"};
@@ -373,10 +394,24 @@ Command CommandParser::parse(const std::vector<std::string>& raw_tokens, const s
                     cmd.args.push_back(raw_tokens[a]);
                 }
                 break;
+            } else if (!opt.empty() && opt[0] == '-') {
+                return InvalidCommand{"Unknown option for 'submit': " + opt};
             } else {
-                // Treat positional parameter after workload as workload arg
-                cmd.args.push_back(opt);
+                if (cmd.workload.empty()) {
+                    cmd.workload = opt;
+                } else {
+                    cmd.args.push_back(opt);
+                }
             }
+        }
+
+        if (cmd.workload.empty()) {
+            return InvalidCommand{"Usage: astra submit <workload> [options]"};
+        }
+
+        std::string path_err;
+        if (!is_safe_workload_path(cmd.workload, workload_root, &path_err)) {
+            return InvalidCommand{"Invalid workload: " + path_err};
         }
 
         return cmd;
