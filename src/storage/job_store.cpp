@@ -604,6 +604,21 @@ bool JobStore::delete_job(const std::string& job_id, std::string* error_out) {
     return true;
 }
 
+bool JobStore::purge_completed_jobs(std::string* error_out) {
+    std::lock_guard<std::mutex> lock(impl_->mtx);
+    if (!impl_->db) {
+        if (error_out) *error_out = "Database is not open";
+        return false;
+    }
+
+    const char* sql = 
+        "DELETE FROM job_dependencies WHERE job_id IN (SELECT id FROM jobs WHERE state IN ('SUCCEEDED', 'FAILED', 'CANCELLED', 'Succeeded', 'Failed', 'Cancelled'))"
+        "   OR dependency_id IN (SELECT id FROM jobs WHERE state IN ('SUCCEEDED', 'FAILED', 'CANCELLED', 'Succeeded', 'Failed', 'Cancelled'));"
+        "DELETE FROM attempts WHERE job_id IN (SELECT id FROM jobs WHERE state IN ('SUCCEEDED', 'FAILED', 'CANCELLED', 'Succeeded', 'Failed', 'Cancelled'));"
+        "DELETE FROM jobs WHERE state IN ('SUCCEEDED', 'FAILED', 'CANCELLED', 'Succeeded', 'Failed', 'Cancelled');";
+    return impl_->exec_sql(sql, error_out);
+}
+
 bool JobStore::add_dependency(const std::string& job_id, const std::string& depends_on_job_id, std::string* error_out) {
     std::lock_guard<std::mutex> lock(impl_->mtx);
     if (!impl_->db) {

@@ -103,6 +103,8 @@ struct HostPsCommand {
     size_t limit = 25;
 };
 
+struct CleanCommand {};
+
 struct ReplCommand {};
 
 struct InvalidCommand {
@@ -127,6 +129,7 @@ using Command = std::variant<
     BenchmarkCommand,
     GanttCommand,
     HostPsCommand,
+    CleanCommand,
     DemoCommand,
     TopCommand,
     ShutdownCommand,

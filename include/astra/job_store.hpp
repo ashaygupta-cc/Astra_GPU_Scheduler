@@ -38,6 +38,7 @@ public:
     std::vector<Job> get_all_jobs(std::string* error_out = nullptr);
     std::vector<Job> get_jobs_by_state(JobState state, std::string* error_out = nullptr);
     bool delete_job(const std::string& job_id, std::string* error_out = nullptr);
+    bool purge_completed_jobs(std::string* error_out = nullptr);
 
     // Dependencies
     bool add_dependency(const std::string& job_id, const std::string& depends_on_job_id, std::string* error_out = nullptr);

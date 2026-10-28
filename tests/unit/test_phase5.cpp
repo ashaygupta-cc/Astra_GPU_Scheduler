@@ -98,7 +98,7 @@ void test_tui_view_transitions_and_headless_render() {
     test_job.resources.device = DeviceRequirement::CpuOnly;
     dummy_snap.jobs.push_back(test_job);
 
-    for (auto v : {TuiView::Jobs, TuiView::Gantt, TuiView::HostPs, TuiView::Workers, TuiView::Resources, 
+    for (auto v : {TuiView::Jobs, TuiView::Gantt, TuiView::HostPs, TuiView::Deadlock, TuiView::Workers, TuiView::Resources, 
                    TuiView::Events, TuiView::JobDetails, TuiView::Logs}) {
         tui.set_view(v);
         tui.render_frame(dummy_snap); // Must not crash

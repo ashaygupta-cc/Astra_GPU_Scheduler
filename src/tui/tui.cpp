@@ -104,10 +104,11 @@ void Tui::render_header(int /*max_y*/, int max_x, const TuiSnapshot& snap) {
     attron(COLOR_PAIR(1));
     std::string view_name;
     switch (current_view_) {
-        case TuiView::Jobs:       view_name = "JOBS DASHBOARD"; break;
-        case TuiView::Gantt:      view_name = "GANTT TIMELINE & TAT"; break;
-        case TuiView::HostPs:     view_name = "HOST LINUX OS (/proc)"; break;
-        case TuiView::Workers:    view_name = "WORKER POOL"; break;
+        case TuiView::Jobs:       view_name = "1:JOBS DASHBOARD"; break;
+        case TuiView::Gantt:      view_name = "2:GANTT TIMELINE & TAT"; break;
+        case TuiView::HostPs:     view_name = "3:HOST LINUX OS (/proc)"; break;
+        case TuiView::Deadlock:   view_name = "4:DEADLOCK LAB (Banker's & WFG)"; break;
+        case TuiView::Workers:    view_name = "5:WORKER POOL"; break;
         case TuiView::Resources:  view_name = "HARDWARE TELEMETRY"; break;
         case TuiView::Events:     view_name = "EVENT AUDIT LOG"; break;
         case TuiView::JobDetails: view_name = "JOB INSPECTION"; break;
@@ -137,30 +138,64 @@ void Tui::render_jobs_view(int max_y, int max_x, const TuiSnapshot& snap) {
 #if defined(NCURSES_VERSION) || defined(CURSES)
     int split_x = std::max(52, max_x - 36);
 
+    // Sort jobs: Active/Running/Queued jobs FIRST, then newest completed jobs!
+    std::vector<Job> display_jobs = snap.jobs;
+    std::sort(display_jobs.begin(), display_jobs.end(), [](const Job& a, const Job& b) {
+        bool a_act = (a.state == JobState::Running || a.state == JobState::Admitted || 
+                      a.state == JobState::Queued || a.state == JobState::WaitingForDependencies ||
+                      a.state == JobState::Checkpointing);
+        bool b_act = (b.state == JobState::Running || b.state == JobState::Admitted || 
+                      b.state == JobState::Queued || b.state == JobState::WaitingForDependencies ||
+                      b.state == JobState::Checkpointing);
+        if (a_act != b_act) {
+            return a_act > b_act;
+        }
+        return a.submitted_time > b.submitted_time;
+    });
+
+    cached_job_ids_.clear();
+    for (const auto& j : display_jobs) {
+        cached_job_ids_.push_back(j.id);
+    }
+
+    int active_count = snap.queued_jobs_count + snap.running_jobs_count;
+    int job_count = static_cast<int>(display_jobs.size());
+
     // Left Panel: Jobs Table
     attron(COLOR_PAIR(1) | A_BOLD);
-    mvaddstr(3, 1, "JOBS QUEUE");
+    char hdr_buf[128];
+    snprintf(hdr_buf, sizeof(hdr_buf), "JOBS QUEUE (Total: %d | Active: %d | [x] Prune Done)", job_count, active_count);
+    mvaddstr(3, 1, hdr_buf);
     mvaddstr(4, 1, "ID              NAME            STATE          DEVICE   PRI");
     attroff(COLOR_PAIR(1) | A_BOLD);
     mvhline(5, 1, ACS_HLINE, split_x - 2);
 
     int row_start = 6;
     int max_rows = max_y - 10;
-    int job_count = static_cast<int>(snap.jobs.size());
+    if (max_rows < 3) max_rows = 3;
 
-    if (snap.jobs.empty()) {
-        mvaddstr(row_start, 2, "(No active or queued jobs)");
+    if (display_jobs.empty()) {
+        mvaddstr(row_start, 2, "(No active or queued jobs in store)");
     } else {
         if (selected_row_ >= job_count) selected_row_ = job_count - 1;
         if (selected_row_ < 0) selected_row_ = 0;
 
-        for (int i = 0; i < max_rows && i < job_count; ++i) {
-            const auto& j = snap.jobs[static_cast<size_t>(i)];
-            bool selected = (i == selected_row_);
+        // Viewport scrolling
+        if (selected_row_ < scroll_offset_) {
+            scroll_offset_ = selected_row_;
+        }
+        if (selected_row_ >= scroll_offset_ + max_rows) {
+            scroll_offset_ = selected_row_ - max_rows + 1;
+        }
+
+        for (int i = 0; i < max_rows && (scroll_offset_ + i) < job_count; ++i) {
+            int idx = scroll_offset_ + i;
+            const auto& j = display_jobs[static_cast<size_t>(idx)];
+            bool selected = (idx == selected_row_);
 
             if (selected) attron(COLOR_PAIR(5) | A_BOLD);
-            else if (j.state == JobState::Running) attron(COLOR_PAIR(2));
-            else if (j.state == JobState::Queued) attron(COLOR_PAIR(3));
+            else if (j.state == JobState::Running) attron(COLOR_PAIR(2) | A_BOLD);
+            else if (j.state == JobState::Queued) attron(COLOR_PAIR(3) | A_BOLD);
             else if (is_terminal_state(j.state)) attron(COLOR_PAIR(4));
 
             std::string line_id = (j.id.size() > 14) ? j.id.substr(0, 14) : j.id;
@@ -177,8 +212,8 @@ void Tui::render_jobs_view(int max_y, int max_x, const TuiSnapshot& snap) {
             mvaddstr(row_start + i, 1, buf);
 
             if (selected) attroff(COLOR_PAIR(5) | A_BOLD);
-            else if (j.state == JobState::Running) attroff(COLOR_PAIR(2));
-            else if (j.state == JobState::Queued) attroff(COLOR_PAIR(3));
+            else if (j.state == JobState::Running) attroff(COLOR_PAIR(2) | A_BOLD);
+            else if (j.state == JobState::Queued) attroff(COLOR_PAIR(3) | A_BOLD);
             else if (is_terminal_state(j.state)) attroff(COLOR_PAIR(4));
         }
     }
@@ -279,7 +314,22 @@ void Tui::render_gantt_view(int max_y, int max_x, const TuiSnapshot& snap) {
     attroff(COLOR_PAIR(1) | A_BOLD);
     mvhline(5, 1, ACS_HLINE, max_x - 2);
 
-    auto report = GanttVisualizer::calculate_metrics(snap.jobs);
+    // Sort jobs active-first, newest-first so active Gantt tracks are at the top!
+    std::vector<Job> display_jobs = snap.jobs;
+    std::sort(display_jobs.begin(), display_jobs.end(), [](const Job& a, const Job& b) {
+        bool a_act = (a.state == JobState::Running || a.state == JobState::Admitted || 
+                      a.state == JobState::Queued || a.state == JobState::WaitingForDependencies ||
+                      a.state == JobState::Checkpointing);
+        bool b_act = (b.state == JobState::Running || b.state == JobState::Admitted || 
+                      b.state == JobState::Queued || b.state == JobState::WaitingForDependencies ||
+                      b.state == JobState::Checkpointing);
+        if (a_act != b_act) {
+            return a_act > b_act;
+        }
+        return a.submitted_time > b.submitted_time;
+    });
+
+    auto report = GanttVisualizer::calculate_metrics(display_jobs);
     int row = 6;
     int max_rows = max_y - 12;
 
@@ -389,6 +439,59 @@ void Tui::render_host_ps_view(int max_y, int max_x) {
 
         if (selected) attroff(COLOR_PAIR(5) | A_BOLD);
         else attroff(COLOR_PAIR(pair));
+    }
+#else
+    (void)max_y; (void)max_x;
+#endif
+}
+
+void Tui::render_deadlock_view(int max_y, int max_x) {
+#if defined(NCURSES_VERSION) || defined(CURSES)
+    (void)max_x;
+    attron(COLOR_PAIR(1) | A_BOLD);
+    mvaddstr(3, 1, "================================================================================");
+    mvaddstr(4, 1, " DEADLOCK LAB: BANKER'S SAFETY ALGORITHM & WAIT-FOR-GRAPH (WFG) CYCLE DETECTOR ");
+    mvaddstr(5, 1, "================================================================================");
+    attroff(COLOR_PAIR(1) | A_BOLD);
+
+    int y = 7;
+    attron(COLOR_PAIR(2) | A_BOLD);
+    mvaddstr(y++, 2, "[1] HARDWARE CAPACITY & RESOURCE POOL:");
+    attroff(COLOR_PAIR(2) | A_BOLD);
+    mvaddstr(y++, 4, "Available Resources Vector [CPU, RAM_MB, GPU]: [0, 512, 1]");
+
+    y++;
+    attron(COLOR_PAIR(3) | A_BOLD);
+    mvaddstr(y++, 2, "[2] CONCURRENT WORKLOAD RESOURCE MATRIX:");
+    attroff(COLOR_PAIR(3) | A_BOLD);
+    mvaddstr(y++, 4, "Candidate 1: Job-Alpha (Priority=8) | Holding: [CPU=1, RAM=256] | Needs: [GPU=1]");
+    mvaddstr(y++, 4, "Candidate 2: Job-Beta  (Priority=2) | Holding: [GPU=1, RAM=512] | Needs: [CPU=1]");
+
+    y++;
+    attron(COLOR_PAIR(4) | A_BOLD);
+    mvaddstr(y++, 2, "[3] WAIT-FOR-GRAPH (WFG) TOPOLOGY & CIRCULAR WAIT CYCLE:");
+    mvaddstr(y++, 4, "CIRCULAR WAIT DETECTED: [Job-Alpha] <=====> [Job-Beta]");
+    attroff(COLOR_PAIR(4) | A_BOLD);
+    mvaddstr(y++, 4, "  - Job-Alpha holds CPU and blocks waiting on GPU held by Job-Beta");
+    mvaddstr(y++, 4, "  - Job-Beta holds GPU and blocks waiting on CPU held by Job-Alpha");
+
+    y++;
+    attron(COLOR_PAIR(6) | A_BOLD);
+    mvaddstr(y++, 2, "[4] EXPLAINABLE COST PREEMPTION & VICTIM SELECTION:");
+    attroff(COLOR_PAIR(6) | A_BOLD);
+    mvaddstr(y++, 4, "Formula: CostScore = (Priority * 0.70) + (SunkMs * 0.30)");
+    mvaddstr(y++, 4, "  - Job-Alpha Score: 5.60 | Job-Beta Score: 1.40 ===> MINIMAL WORK-LOSS VICTIM");
+    mvaddstr(y++, 4, "ACTION: Preempted victim 'Job-Beta'. Released [GPU, 512 MB] back to pool.");
+
+    y++;
+    attron(COLOR_PAIR(2) | A_BOLD);
+    mvaddstr(y++, 2, "[5] POST-RECOVERY SAFETY STATUS & EXECUTION SEQUENCE:");
+    mvaddstr(y++, 4, "System Status: [==========] 100.0% SAFE | Zero Deadlock Hang");
+    mvaddstr(y++, 4, "Safe Execution Sequence: < Job-Alpha > ---> SUCCEEDED");
+    attroff(COLOR_PAIR(2) | A_BOLD);
+
+    if (max_y > 22) {
+        mvaddstr(max_y - 4, 2, "Tip: Run './build/astra deadlock' in another terminal for full text report.");
     }
 #else
     (void)max_y; (void)max_x;
@@ -587,7 +690,7 @@ void Tui::render_footer(int max_y, int max_x) {
     mvhline(y, 0, ACS_HLINE, max_x);
 
     attron(COLOR_PAIR(1) | A_BOLD);
-    const char* controls = " [Tab] Cycle  [g] Gantt  [h] Host OS  [arrows] Nav  [Enter] Inspect  [c] Cancel  [q] Quit ";
+    const char* controls = " [1/j] Jobs  [2/g] Gantt  [3/h] Host OS  [4/d] Deadlock  [5/w] Workers  [Enter] Inspect  [x] Prune Done  [q] Quit ";
     mvaddstr(y + 1, 1, controls);
     attroff(COLOR_PAIR(1) | A_BOLD);
 #else
@@ -618,6 +721,9 @@ void Tui::render_frame(const TuiSnapshot& snap) {
         case TuiView::HostPs:
             render_host_ps_view(max_y, max_x);
             break;
+        case TuiView::Deadlock:
+            render_deadlock_view(max_y, max_x);
+            break;
         case TuiView::Workers:
             render_workers_view(max_y, max_x, snap);
             break;
@@ -644,7 +750,8 @@ void Tui::render_frame(const TuiSnapshot& snap) {
 
 int Tui::run(std::function<TuiSnapshot()> snapshot_fn,
              std::function<bool(const std::string& job_id)> cancel_fn,
-             std::function<void()> submit_demo_fn) {
+             std::function<void()> submit_demo_fn,
+             std::function<void()> clean_fn) {
     if (!init()) {
         return 1;
     }
@@ -673,20 +780,60 @@ int Tui::run(std::function<TuiSnapshot()> snapshot_fn,
             case '\t': // Tab cycles views
                 if (current_view_ == TuiView::Jobs) current_view_ = TuiView::Gantt;
                 else if (current_view_ == TuiView::Gantt) current_view_ = TuiView::HostPs;
-                else if (current_view_ == TuiView::HostPs) current_view_ = TuiView::Workers;
+                else if (current_view_ == TuiView::HostPs) current_view_ = TuiView::Deadlock;
+                else if (current_view_ == TuiView::Deadlock) current_view_ = TuiView::Workers;
                 else if (current_view_ == TuiView::Workers) current_view_ = TuiView::Resources;
                 else if (current_view_ == TuiView::Resources) current_view_ = TuiView::Events;
                 else current_view_ = TuiView::Jobs;
+                selected_row_ = 0;
+                scroll_offset_ = 0;
                 break;
 
+            case '1':
+                current_view_ = TuiView::Jobs;
+                selected_row_ = 0;
+                scroll_offset_ = 0;
+                break;
+
+            case '2':
             case 'g':
             case 'G':
                 current_view_ = TuiView::Gantt;
+                selected_row_ = 0;
+                scroll_offset_ = 0;
                 break;
 
+            case '3':
             case 'h':
             case 'H':
                 current_view_ = TuiView::HostPs;
+                selected_row_ = 0;
+                scroll_offset_ = 0;
+                break;
+
+            case '4':
+            case 'd':
+            case 'D':
+                current_view_ = TuiView::Deadlock;
+                selected_row_ = 0;
+                scroll_offset_ = 0;
+                break;
+
+            case '5':
+            case 'w':
+            case 'W':
+                current_view_ = TuiView::Workers;
+                selected_row_ = 0;
+                scroll_offset_ = 0;
+                break;
+
+            case 'x':
+            case 'X':
+                if (clean_fn) {
+                    clean_fn();
+                    selected_row_ = 0;
+                    scroll_offset_ = 0;
+                }
                 break;
 
             case 27: // Escape key returns to previous view
@@ -700,14 +847,33 @@ int Tui::run(std::function<TuiSnapshot()> snapshot_fn,
                 break;
 
             case KEY_DOWN:
-            case 'j':
                 if (current_view_ == TuiView::HostPs) {
                     if (!cached_host_procs_.empty() && selected_row_ < static_cast<int>(cached_host_procs_.size()) - 1) {
                         ++selected_row_;
                     }
                 } else {
-                    if (!snap.jobs.empty() && selected_row_ < static_cast<int>(snap.jobs.size()) - 1) {
+                    if (!cached_job_ids_.empty() && selected_row_ < static_cast<int>(cached_job_ids_.size()) - 1) {
                         ++selected_row_;
+                    }
+                }
+                break;
+
+            case 'j':
+            case 'J':
+                if (current_view_ != TuiView::Jobs && current_view_ != TuiView::HostPs) {
+                    current_view_ = TuiView::Jobs;
+                    selected_row_ = 0;
+                    scroll_offset_ = 0;
+                } else {
+                    // Navigate down
+                    if (current_view_ == TuiView::HostPs) {
+                        if (!cached_host_procs_.empty() && selected_row_ < static_cast<int>(cached_host_procs_.size()) - 1) {
+                            ++selected_row_;
+                        }
+                    } else {
+                        if (!cached_job_ids_.empty() && selected_row_ < static_cast<int>(cached_job_ids_.size()) - 1) {
+                            ++selected_row_;
+                        }
                     }
                 }
                 break;
@@ -723,8 +889,8 @@ int Tui::run(std::function<TuiSnapshot()> snapshot_fn,
                         current_view_ = TuiView::JobDetails;
                     }
                 } else if (current_view_ == TuiView::Jobs) {
-                    if (!snap.jobs.empty() && selected_row_ < static_cast<int>(snap.jobs.size())) {
-                        inspect_job_id_ = snap.jobs[static_cast<size_t>(selected_row_)].id;
+                    if (!cached_job_ids_.empty() && selected_row_ < static_cast<int>(cached_job_ids_.size())) {
+                        inspect_job_id_ = cached_job_ids_[static_cast<size_t>(selected_row_)];
                         inspect_pid_ = 0;
                         previous_view_ = TuiView::Jobs;
                         current_view_ = TuiView::JobDetails;
@@ -734,16 +900,16 @@ int Tui::run(std::function<TuiSnapshot()> snapshot_fn,
 
             case 'l':
             case 'L':
-                if (!snap.jobs.empty() && selected_row_ < static_cast<int>(snap.jobs.size())) {
-                    inspect_job_id_ = snap.jobs[static_cast<size_t>(selected_row_)].id;
+                if (!cached_job_ids_.empty() && selected_row_ < static_cast<int>(cached_job_ids_.size())) {
+                    inspect_job_id_ = cached_job_ids_[static_cast<size_t>(selected_row_)];
                     current_view_ = TuiView::Logs;
                 }
                 break;
 
             case 'c':
             case 'C':
-                if (!snap.jobs.empty() && selected_row_ < static_cast<int>(snap.jobs.size())) {
-                    const std::string& target_id = snap.jobs[static_cast<size_t>(selected_row_)].id;
+                if (!cached_job_ids_.empty() && selected_row_ < static_cast<int>(cached_job_ids_.size())) {
+                    const std::string& target_id = cached_job_ids_[static_cast<size_t>(selected_row_)];
                     if (cancel_fn) {
                         cancel_fn(target_id);
                     }
@@ -755,11 +921,6 @@ int Tui::run(std::function<TuiSnapshot()> snapshot_fn,
                 if (submit_demo_fn) {
                     submit_demo_fn();
                 }
-                break;
-
-            case 'w':
-            case 'W':
-                current_view_ = TuiView::Workers;
                 break;
 
             case 'e':

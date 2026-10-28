@@ -223,6 +223,10 @@ Command CommandParser::parse(const std::vector<std::string>& raw_tokens, const s
         return WorkersCommand{};
     }
 
+    if (subcmd == "clean" || subcmd == "clear" || subcmd == "purge") {
+        return CleanCommand{};
+    }
+
     if (subcmd == "top") {
         return TopCommand{};
     }

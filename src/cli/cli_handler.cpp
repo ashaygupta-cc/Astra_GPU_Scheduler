@@ -625,11 +625,26 @@ int CliHandler::execute(const Command& cmd, std::ostream& out, std::ostream& err
                     store_.record_event(ev);
                     Event ev_q{0, std::chrono::system_clock::now(), EventType::JOB_QUEUED, demo_job.id, -1, "{}"};
                     store_.record_event(ev_q);
+                },
+                [&]() {
+                    // Purge completed jobs when 'x' key is pressed in TUI
+                    store_.purge_completed_jobs();
                 }
             );
             scheduler.stop();
             wm.shutdown_all(true);
             return 0;
+        }
+
+        else if constexpr (std::is_same_v<T, CleanCommand>) {
+            std::string err_str;
+            if (store_.purge_completed_jobs(&err_str)) {
+                out << "[OK] Successfully purged completed, failed, and cancelled jobs from scheduler database.\n";
+                return 0;
+            } else {
+                err << "[ERROR] Failed to purge jobs: " << err_str << "\n";
+                return 1;
+            }
         }
 
         else if constexpr (std::is_same_v<T, DeadlockCommand>) {

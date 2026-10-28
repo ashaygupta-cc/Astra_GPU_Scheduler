@@ -11,6 +11,7 @@ enum class TuiView {
     Jobs,
     Gantt,
     HostPs,
+    Deadlock,
     Workers,
     Resources,
     Events,
@@ -33,7 +34,8 @@ public:
     // Main interactive loop
     int run(std::function<TuiSnapshot()> snapshot_fn,
             std::function<bool(const std::string& job_id)> cancel_fn = nullptr,
-            std::function<void()> submit_demo_fn = nullptr);
+            std::function<void()> submit_demo_fn = nullptr,
+            std::function<void()> clean_fn = nullptr);
 
     // Render a single snapshot (can be used for headless test verification)
     void render_frame(const TuiSnapshot& snap);
@@ -47,15 +49,18 @@ private:
     TuiView current_view_ = TuiView::Jobs;
     TuiView previous_view_ = TuiView::Jobs;
     int selected_row_ = 0;
+    int scroll_offset_ = 0;
     std::string inspect_job_id_;
     pid_t inspect_pid_ = 0;
     std::vector<HostProcessInfo> cached_host_procs_;
+    std::vector<std::string> cached_job_ids_;
     std::string status_banner_msg_;
 
     void render_header(int max_y, int max_x, const TuiSnapshot& snap);
     void render_jobs_view(int max_y, int max_x, const TuiSnapshot& snap);
     void render_gantt_view(int max_y, int max_x, const TuiSnapshot& snap);
     void render_host_ps_view(int max_y, int max_x);
+    void render_deadlock_view(int max_y, int max_x);
     void render_workers_view(int max_y, int max_x, const TuiSnapshot& snap);
     void render_resources_view(int max_y, int max_x, const TuiSnapshot& snap);
     void render_events_view(int max_y, int max_x, const TuiSnapshot& snap);
